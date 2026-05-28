@@ -2,6 +2,7 @@
   "name": "pi-dynamic-workflows",
   "version": "1.0.0",
   "description": "Claude-Code-style dynamic workflow orchestration for Pi.",
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -10,6 +11,12 @@
       "import": "./dist/index.js"
     }
   },
+  "files": [
+    "dist/",
+    "extensions/",
+    "src/",
+    "README.md"
+  ],
   "scripts": {
     "test": "npm run check && npm run build && npm run test:unit",
     "test:unit": "tsx --test tests/**/*.test.ts",
@@ -30,17 +37,26 @@
       "extensions/workflow.ts"
     ]
   },
-  "author": "",
-  "license": "ISC",
-  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Michaelliv/pi-dynamic-workflows.git"
+  },
+  "author": "michaelliv",
+  "license": "MIT",
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "latest",
-    "acorn": "^8.16.0",
-    "typebox": "latest"
+    "acorn": "^8.16.0"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "typebox": "*"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.16",
+    "@mariozechner/pi-coding-agent": "latest",
+    "@mariozechner/pi-tui": "latest",
     "tsx": "latest",
+    "typebox": "latest",
     "typescript": "latest"
   }
 }
