@@ -14,7 +14,6 @@ Then reload Pi:
 
 ```text
 /reload
-/workflow-status
 ```
 
 ## Pi extension
