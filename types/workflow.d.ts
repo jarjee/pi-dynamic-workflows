@@ -37,6 +37,8 @@ declare global {
     isolation?: "worktree";
     /** Requested subagent role/type. */
     agentType?: string;
+    /** Built-in coding tools to expose. Omit for runtime defaults; [] exposes no coding tools. */
+    tools?: Array<"read" | "grep" | "find" | "ls" | "bash" | "edit" | "write" | string>;
   }
 
   type JsonPrimitive = string | number | boolean | null;

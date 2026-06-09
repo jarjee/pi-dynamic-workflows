@@ -1,0 +1,30 @@
+# Absorbing multi-agent runtime features
+
+`pi-dynamic-workflows` should keep JavaScript workflow control flow as the orchestration language. The workflow script is intentionally ephemeral and model-authored, so dependencies should usually be expressed by ordinary values, `await`, `parallel(...)`, and `pipeline(...)` rather than a second explicit DAG DSL.
+
+The runtime should absorb useful `pi-multiagent` safety and execution features around the `agent()` primitive:
+
+- runtime-enforced tool allowlists;
+- safer read-only defaults;
+- per-agent timeout and retry;
+- hard abort/cleanup for stuck runs;
+- optional reusable roles/catalog prompts;
+- later, carefully reviewed extension-tool and caller-skill grants.
+
+## Design principles
+
+1. **JS control flow is the DAG.** Avoid introducing a separate graph language until a concrete workflow cannot be represented clearly with ordinary JavaScript.
+2. **Scripts request; runtime enforces.** A script can request tools, roles, models, and side effects, but host/runtime policy is authoritative.
+3. **Default to read-only.** Subagents should not receive `bash`, `edit`, or `write` unless the workflow explicitly requests them and policy permits them.
+4. **Prefer visible abortability over perfect sandboxing.** Workflows need clear progress, quick cancellation, hard cleanup, and honest reporting of what was running when stopped.
+5. **No ambient power by accident.** Do not implicitly inherit extension tools, project-controlled prompts, skills, or broad coding tools.
+
+## First absorbed feature: tool allowlists
+
+`agent(prompt, { tools })` now accepts a built-in coding tool allowlist. If omitted, the runtime default is read-only:
+
+```js
+['read', 'grep', 'find', 'ls']
+```
+
+Use `tools: []` for a subagent with no coding tools. Unknown or unavailable names fail closed before launching the subagent.

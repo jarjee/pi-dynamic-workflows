@@ -89,7 +89,7 @@ This declares `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `cwd`, an
 
 | Global | Description |
 | --- | --- |
-| `agent(prompt, opts)` | Spawn an isolated subagent. Returns its final text or, with `opts.schema`, a validated object. |
+| `agent(prompt, opts)` | Spawn an isolated subagent. Returns its final text or, with `opts.schema`, a validated object. `opts.tools` can allowlist built-in coding tools. |
 | `parallel(thunks)` | Run an array of `() => agent(...)` thunks concurrently. Results are returned in input order. |
 | `pipeline(items, ...stages)` | Run each item through sequential stages while items fan out. Each stage receives `(prev, original, index)`. |
 | `phase(title)` | Mark the current phase. Used for grouping in the live progress view. |
@@ -108,6 +108,24 @@ Workflow scripts are evaluated inside a Node `vm` sandbox. The following are int
 - spreads, computed keys, template interpolation, function calls inside `meta`
 
 This keeps `meta` parseable, runs reproducible, and the surface area small.
+
+### Subagent tool allowlists
+
+By default, subagents receive the read-only coding tools `read`, `grep`, `find`, and `ls`. Use `opts.tools` to request an explicit built-in tool allowlist for a specific subagent:
+
+```js
+const review = await agent('Review the docs without editing.', {
+  label: 'docs review',
+  tools: ['read', 'grep', 'find', 'ls'],
+})
+
+const summary = await agent('Summarize the prior findings only.', {
+  label: 'summary',
+  tools: [],
+})
+```
+
+Side-effectful tools such as `bash`, `edit`, and `write` must be requested explicitly. Unknown tool names fail closed before the subagent launches.
 
 ### Structured subagent output
 

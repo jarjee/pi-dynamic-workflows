@@ -13,7 +13,9 @@ import { createStructuredOutputTool, type StructuredOutputCapture } from "./stru
 
 export interface WorkflowAgentOptions {
   cwd?: string;
-  /** Extra tools available to the subagent in addition to the structured output tool. */
+  /** Built-in coding tools available when an agent call omits its own tools allowlist. */
+  defaultTools?: string[];
+  /** Additional custom tools always available to subagents. */
   tools?: ToolDefinition[];
   /** Override any createAgentSession option (model, authStorage, resourceLoader, etc.). */
   session?: Partial<CreateAgentSessionOptions>;
@@ -24,7 +26,10 @@ export interface WorkflowAgentOptions {
 export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefined> {
   label?: string;
   schema?: TSchemaDef;
-  tools?: ToolDefinition[];
+  /** Built-in coding tool allowlist for this subagent. Omit to use runtime defaults; [] exposes no coding tools. */
+  tools?: string[];
+  /** Extra custom tools for this subagent, in addition to selected built-ins. */
+  customTools?: ToolDefinition[];
   instructions?: string;
   signal?: AbortSignal;
 }
@@ -33,15 +38,21 @@ export type AgentRunResult<TSchemaDef extends TSchema | undefined> = TSchemaDef 
   ? Static<TSchemaDef>
   : string;
 
+const DEFAULT_WORKFLOW_TOOLS = ["read", "grep", "find", "ls"];
+
 export class WorkflowAgent {
   private readonly cwd: string;
-  private readonly baseTools: ToolDefinition[];
+  private readonly codingTools: ToolDefinition[];
+  private readonly customTools: ToolDefinition[];
+  private readonly defaultTools: string[];
   private readonly sessionOptions: Partial<CreateAgentSessionOptions>;
   private readonly instructions?: string;
 
   constructor(options: WorkflowAgentOptions = {}) {
     this.cwd = options.cwd ?? process.cwd();
-    this.baseTools = options.tools ?? createCodingTools(this.cwd);
+    this.codingTools = createCodingTools(this.cwd);
+    this.customTools = options.tools ?? [];
+    this.defaultTools = options.defaultTools ?? DEFAULT_WORKFLOW_TOOLS;
     this.sessionOptions = options.session ?? {};
     this.instructions = options.instructions;
   }
@@ -51,7 +62,11 @@ export class WorkflowAgent {
     options: AgentRunOptions<TSchemaDef> = {},
   ): Promise<AgentRunResult<TSchemaDef>> {
     const capture: StructuredOutputCapture<any> = { called: false, value: undefined };
-    const customTools: ToolDefinition[] = [...this.baseTools, ...(options.tools ?? [])];
+    const customTools: ToolDefinition[] = [
+      ...this.selectCodingTools(options.tools ?? this.defaultTools),
+      ...this.customTools,
+      ...(options.customTools ?? []),
+    ];
 
     if (options.schema) {
       customTools.push(createStructuredOutputTool({ schema: options.schema, capture }) as unknown as ToolDefinition);
@@ -91,6 +106,17 @@ export class WorkflowAgent {
       removeAbortListener?.();
       session.dispose();
     }
+  }
+
+  private selectCodingTools(names: string[]): ToolDefinition[] {
+    const byName = new Map(this.codingTools.map((tool) => [tool.name, tool]));
+    const selected: ToolDefinition[] = [];
+    for (const name of names) {
+      const tool = byName.get(name);
+      if (!tool) throw new Error(`Unknown or unavailable workflow subagent tool: ${name}`);
+      selected.push(tool);
+    }
+    return selected;
   }
 
   private buildPrompt(prompt: string, options: AgentRunOptions<any>, structured: boolean): string {
