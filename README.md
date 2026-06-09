@@ -92,6 +92,7 @@ This declares `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `cwd`, an
 | `agent(prompt, opts)` | Spawn an isolated subagent. Returns its final text or, with `opts.schema`, a validated object. `opts.tools` can allowlist built-in coding tools. |
 | `parallel(thunks)` | Run an array of `() => agent(...)` thunks concurrently. Results are returned in input order. |
 | `pipeline(items, ...stages)` | Run each item through sequential stages while items fan out. Each stage receives `(prev, original, index)`. |
+| `handoff(value, opts)` | Return small values inline, or write large values to a mode-0600 temp artifact and return read instructions. |
 | `phase(title)` | Mark the current phase. Used for grouping in the live progress view. |
 | `log(message)` | Append a workflow-level log line. |
 | `args` | Optional JSON value passed in via the tool's `args` parameter. |
@@ -158,6 +159,19 @@ const review = await agent('Review the public API for compatibility risk.', {
 ```
 
 Bundled package roles include `package:reviewer`, `package:critic`, `package:scout`, `package:planner`, `package:synthesizer`, and `package:worker`. Project roles are repository-controlled and denied by default; hosts must opt in with `roles.projectRoles: 'allow'`.
+
+### Large handoff artifacts
+
+Use `handoff(value, { inlineLimit })` when passing potentially large upstream results into later prompts. Small values are returned unchanged; larger values are written to a temporary mode-0600 file and replaced with instructions containing the file path.
+
+```js
+const map = await agent('Map the repository.', { label: 'repo map' })
+const mapRef = await handoff(map, { inlineLimit: 100_000 })
+const review = await agent('Review using this map:\n' + mapRef, {
+  label: 'review',
+  tools: ['read', 'grep', 'find', 'ls'],
+})
+```
 
 ### Per-agent model selection
 

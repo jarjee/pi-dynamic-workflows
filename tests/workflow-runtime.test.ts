@@ -76,6 +76,23 @@ return await agent('do work', { label: 'worker' })
   assert.deepEqual(calls, [{ tools: ["read"] }]);
 });
 
+test("runWorkflow handoff writes large values to a temp artifact", async () => {
+  const result = await runWorkflow(
+    `export const meta = {
+  name: 'large_handoff',
+  description: 'Write a large handoff artifact'
+}
+
+return await handoff('abcdef', { inlineLimit: 3 })
+`,
+  );
+
+  const text = result.result as string;
+  assert.match(text, /Workflow handoff artifact:/);
+  const path = JSON.parse(text.match(/path: (".*")/)?.[1] ?? '""');
+  assert.equal(await import("node:fs/promises").then((fs) => fs.readFile(path, "utf8")), "abcdef");
+});
+
 test("runWorkflow forwards requested model refs to subagents", async () => {
   const calls: Array<{ model?: string }> = [];
   const agentRunner = {

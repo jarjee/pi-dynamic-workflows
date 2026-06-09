@@ -43,6 +43,10 @@ When a parent workflow abort signal fires, the runtime calls `abortAll()` on the
 
 `agent(prompt, { role })` prepends a source-qualified reusable role prompt such as `package:reviewer`. Bundled package roles cover reviewer, critic, scout, planner, synthesizer, and worker behavior. Project roles are repository-controlled and denied by default; hosts must opt in with `roles.projectRoles: 'allow'`.
 
+### Large handoff artifacts
+
+`handoff(value, { inlineLimit })` converts potentially large upstream values into mode-0600 temp-file references. This keeps model-generated workflow scripts simple while avoiding accidentally stuffing very large upstream outputs into downstream prompts.
+
 ### Per-agent model selection
 
 `agent(prompt, { model: 'provider/model-id' })` resolves the ref through the active Pi model registry and passes the resolved model into the child in-memory session. Unknown refs fail before launch.
