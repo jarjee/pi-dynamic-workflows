@@ -24,6 +24,15 @@ declare global {
     model?: string;
   }
 
+  interface WorkflowAgentRetryOptions {
+    /** Total attempts including the first try. */
+    attempts?: number;
+    /** Delay before retrying, in milliseconds. */
+    delayMs?: number;
+    /** Retry delay shape. Defaults to exponential. */
+    backoff?: "constant" | "exponential";
+  }
+
   interface WorkflowAgentOptions<TSchema = JsonSchema> {
     /** Short label shown in the live progress UI. */
     label?: string;
@@ -39,6 +48,10 @@ declare global {
     agentType?: string;
     /** Built-in coding tools to expose. Omit for runtime defaults; [] exposes no coding tools. */
     tools?: Array<"read" | "grep" | "find" | "ls" | "bash" | "edit" | "write" | string>;
+    /** Maximum wall-clock time for each subagent attempt. */
+    timeoutSeconds?: number;
+    /** Retry failed subagent attempts before returning null. */
+    retry?: WorkflowAgentRetryOptions;
   }
 
   type JsonPrimitive = string | number | boolean | null;

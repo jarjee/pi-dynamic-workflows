@@ -38,6 +38,12 @@ export interface WorkflowRunResult<T = unknown> {
   durationMs: number;
 }
 
+export interface AgentRetryOptions {
+  attempts?: number;
+  delayMs?: number;
+  backoff?: "constant" | "exponential";
+}
+
 export interface AgentOptions<TSchemaDef extends TSchema | undefined = TSchema | undefined> {
   label?: string;
   phase?: string;
@@ -47,6 +53,10 @@ export interface AgentOptions<TSchemaDef extends TSchema | undefined = TSchema |
   agentType?: string;
   /** Built-in coding tools to expose to this subagent. Omit to use the runtime default; [] exposes no coding tools. */
   tools?: string[];
+  /** Maximum wall-clock time for each subagent attempt. */
+  timeoutSeconds?: number;
+  /** Retry failed subagent attempts before returning null. */
+  retry?: AgentRetryOptions;
 }
 
 interface RuntimeState {
@@ -113,17 +123,39 @@ export async function runWorkflow<T = unknown>(
       options.onAgentStart?.({ label, phase: assignedPhase, prompt: taskPrompt });
       try {
         throwIfAborted();
-        const result = await agentRunner.run(taskPrompt, {
-          label,
-          schema: normalizedOptions.schema,
-          tools: normalizedOptions.tools,
-          signal: options.signal,
-          instructions: buildAgentInstructions(assignedPhase, normalizedOptions),
-        } as any);
-        throwIfAborted();
-        state.spent += estimateTokens(result);
-        options.onAgentEnd?.({ label, phase: assignedPhase, result });
-        return result;
+        const retry = normalizeRetryOptions(normalizedOptions.retry);
+        for (let attempt = 1; attempt <= retry.attempts; attempt++) {
+          const attemptSignal = createAttemptSignal(options.signal, normalizedOptions.timeoutSeconds);
+          try {
+            const result = await agentRunner.run(taskPrompt, {
+              label,
+              schema: normalizedOptions.schema,
+              tools: normalizedOptions.tools,
+              signal: attemptSignal.signal,
+              instructions: buildAgentInstructions(assignedPhase, normalizedOptions),
+            } as any);
+            attemptSignal.cleanup();
+            throwIfAborted();
+            state.spent += estimateTokens(result);
+            options.onAgentEnd?.({ label, phase: assignedPhase, result });
+            return result;
+          } catch (error) {
+            attemptSignal.cleanup();
+            if (options.signal?.aborted) throw error;
+            const message = error instanceof Error ? error.message : String(error);
+            const remaining = retry.attempts - attempt;
+            if (remaining > 0) {
+              log(`agent ${label} attempt ${attempt}/${retry.attempts} failed: ${message}`);
+              await sleep(retryDelayMs(retry, attempt));
+              continue;
+            }
+            log(`agent ${label} failed: ${message}`);
+            options.onAgentEnd?.({ label, phase: assignedPhase, result: null });
+            return null;
+          }
+        }
+        options.onAgentEnd?.({ label, phase: assignedPhase, result: null });
+        return null;
       } catch (error) {
         if (options.signal?.aborted) throw error;
         log(`agent ${label} failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -427,6 +459,8 @@ function normalizeAgentOptions(value: unknown): AgentOptions {
     isolation: options.isolation,
     agentType: optionalString(options.agentType, "agent type"),
     tools: optionalStringArray(options.tools, "agent tools"),
+    timeoutSeconds: optionalPositiveNumber(options.timeoutSeconds, "agent timeoutSeconds"),
+    retry: normalizeAgentRetryShape(options.retry),
   };
 }
 
@@ -435,6 +469,65 @@ function optionalStringArray(value: unknown, name: string): string[] | undefined
   if (!Array.isArray(value)) throw new TypeError(`${name} must be an array of strings`);
   return Array.from(value, (item, index) => requireString(item, `${name}[${index}]`));
 }
+
+function optionalPositiveNumber(value: unknown, name: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new TypeError(`${name} must be a positive finite number`);
+  }
+  return value;
+}
+
+function normalizeAgentRetryShape(value: unknown): AgentRetryOptions | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object") throw new TypeError("agent retry must be an object");
+  const retry = value as AgentRetryOptions;
+  if (retry.attempts !== undefined && (!Number.isInteger(retry.attempts) || retry.attempts < 1)) {
+    throw new TypeError("agent retry.attempts must be a positive integer");
+  }
+  if (retry.delayMs !== undefined && (!Number.isFinite(retry.delayMs) || retry.delayMs < 0)) {
+    throw new TypeError("agent retry.delayMs must be a non-negative finite number");
+  }
+  if (retry.backoff !== undefined && retry.backoff !== "constant" && retry.backoff !== "exponential") {
+    throw new TypeError('agent retry.backoff must be "constant" or "exponential"');
+  }
+  return {
+    attempts: retry.attempts,
+    delayMs: retry.delayMs,
+    backoff: retry.backoff,
+  };
+}
+
+function normalizeRetryOptions(value: AgentRetryOptions | undefined): Required<AgentRetryOptions> {
+  return {
+    attempts: value?.attempts ?? 1,
+    delayMs: value?.delayMs ?? 1000,
+    backoff: value?.backoff ?? "exponential",
+  };
+}
+
+function retryDelayMs(retry: Required<AgentRetryOptions>, attempt: number): number {
+  if (retry.delayMs === 0) return 0;
+  return retry.backoff === "exponential" ? retry.delayMs * 2 ** (attempt - 1) : retry.delayMs;
+}
+
+function createAttemptSignal(parent: AbortSignal | undefined, timeoutSeconds: number | undefined) {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const abortFromParent = () => controller.abort(parent?.reason);
+  if (parent?.aborted) abortFromParent();
+  else parent?.addEventListener("abort", abortFromParent, { once: true });
+  if (timeoutSeconds !== undefined) timeout = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
+  return {
+    signal: controller.signal,
+    cleanup() {
+      if (timeout) clearTimeout(timeout);
+      parent?.removeEventListener("abort", abortFromParent);
+    },
+  };
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function assertStructuredCloneable(value: unknown, name: string): void {
   try {

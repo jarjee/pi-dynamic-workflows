@@ -19,7 +19,9 @@ The runtime should absorb useful `pi-multiagent` safety and execution features a
 4. **Prefer visible abortability over perfect sandboxing.** Workflows need clear progress, quick cancellation, hard cleanup, and honest reporting of what was running when stopped.
 5. **No ambient power by accident.** Do not implicitly inherit extension tools, project-controlled prompts, skills, or broad coding tools.
 
-## First absorbed feature: tool allowlists
+## Absorbed features
+
+### Tool allowlists
 
 `agent(prompt, { tools })` now accepts a built-in coding tool allowlist. If omitted, the runtime default is read-only:
 
@@ -28,3 +30,17 @@ The runtime should absorb useful `pi-multiagent` safety and execution features a
 ```
 
 Use `tools: []` for a subagent with no coding tools. Unknown or unavailable names fail closed before launching the subagent.
+
+### Timeout and retry
+
+`agent(prompt, { timeoutSeconds, retry })` caps each subagent attempt and retries failures before returning `null`:
+
+```js
+await agent('Run flaky inspection', {
+  label: 'flaky inspection',
+  timeoutSeconds: 900,
+  retry: { attempts: 3, delayMs: 1000, backoff: 'exponential' },
+})
+```
+
+`retry.attempts` includes the initial attempt. Workflow aborts still escape immediately rather than being treated as retryable branch failures.

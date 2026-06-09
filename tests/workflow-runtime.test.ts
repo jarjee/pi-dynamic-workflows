@@ -50,6 +50,64 @@ test("WorkflowAgent applies runtime default tool allowlists when an agent omits 
   );
 });
 
+test("runWorkflow retries failed agent attempts before returning a result", async () => {
+  let attempts = 0;
+  const logs: string[] = [];
+  const agentRunner = {
+    async run(): Promise<string> {
+      attempts++;
+      if (attempts < 3) throw new Error(`temporary failure ${attempts}`);
+      return "ok after retry";
+    },
+  };
+
+  const result = await runWorkflow(
+    `export const meta = {
+  name: 'retry_agent',
+  description: 'Retry a flaky subagent'
+}
+
+return await agent('flaky', { label: 'flaky', retry: { attempts: 3, delayMs: 0 } })
+`,
+    { agent: agentRunner, onLog: (message) => logs.push(message) },
+  );
+
+  assert.equal(attempts, 3);
+  assert.equal(result.result, "ok after retry");
+  assert.ok(logs.some((line) => line.includes("agent flaky attempt 1/3 failed: temporary failure 1")));
+});
+
+test("runWorkflow times out an agent attempt and returns null after retries are exhausted", async () => {
+  const signals: AbortSignal[] = [];
+  const logs: string[] = [];
+  const agentRunner = {
+    async run(_prompt: string, options: { signal?: AbortSignal }): Promise<string> {
+      if (!options.signal) throw new Error("expected child signal");
+      signals.push(options.signal);
+      await new Promise((_resolve, reject) => {
+        options.signal?.addEventListener("abort", () => reject(new Error("child aborted")), { once: true });
+      });
+      return "unreachable";
+    },
+  };
+
+  const result = await runWorkflow(
+    `export const meta = {
+  name: 'timeout_agent',
+  description: 'Timeout a stuck subagent'
+}
+
+return await agent('stuck', { label: 'stuck', timeoutSeconds: 0.001, retry: { attempts: 1 } })
+`,
+    { agent: agentRunner, onLog: (message) => logs.push(message) },
+  );
+
+  assert.equal(result.result, null);
+  assert.equal(signals.length, 1);
+  assert.equal(signals[0].aborted, true);
+  assert.ok(logs.some((line) => line.includes("agent stuck failed: child aborted")));
+});
+
 test("runWorkflow accepts metadata without phases and records runtime phases", async () => {
   const result = await runWorkflow(
     `export const meta = {
