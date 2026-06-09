@@ -95,6 +95,7 @@ This declares `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `cwd`, an
 | `phase(title)` | Mark the current phase. Used for grouping in the live progress view. |
 | `log(message)` | Append a workflow-level log line. |
 | `args` | Optional JSON value passed in via the tool's `args` parameter. |
+| `policy` | Runtime-enforced workflow policy selected by the host/tool call. |
 | `cwd`, `process.cwd()` | Current working directory for subagents. |
 | `budget` | `{ total, spent(), remaining() }` token budget tracker. |
 
@@ -108,6 +109,23 @@ Workflow scripts are evaluated inside a Node `vm` sandbox. The following are int
 - spreads, computed keys, template interpolation, function calls inside `meta`
 
 This keeps `meta` parseable, runs reproducible, and the surface area small.
+
+### Runtime policy
+
+The `workflow` tool accepts an optional host-enforced `policy` object:
+
+```json
+{
+  "policy": {
+    "defaultTools": ["read", "grep", "find", "ls"],
+    "maxConcurrency": 4,
+    "hardAbortGraceMs": 2000,
+    "projectRoles": "deny"
+  }
+}
+```
+
+Workflow scripts can read the frozen `policy` global, but enforcement happens in the runtime. Script-level requests such as `agent(..., { tools })` can narrow or request capabilities; the host policy controls defaults and trust gates.
 
 ### Subagent tool allowlists
 

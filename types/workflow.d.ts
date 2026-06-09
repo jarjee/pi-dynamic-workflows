@@ -80,6 +80,13 @@ declare global {
     remaining(): number;
   }
 
+  interface WorkflowPolicy {
+    defaultTools?: string[];
+    maxConcurrency?: number;
+    hardAbortGraceMs?: number;
+    projectRoles?: "deny" | "allow";
+  }
+
   /** Spawn a subagent. Returns final text unless a structured-output schema is used with an explicit generic. */
   function agent<T = string>(prompt: string, options?: WorkflowAgentOptions): Promise<T>;
 
@@ -100,6 +107,9 @@ declare global {
 
   /** Optional JSON args passed to the workflow tool. Narrow with a local type assertion when needed. */
   const args: unknown;
+
+  /** Runtime-enforced workflow policy selected by the host/tool call. */
+  const policy: Readonly<WorkflowPolicy>;
 
   /** Current working directory for the workflow/subagents. */
   const cwd: string;
