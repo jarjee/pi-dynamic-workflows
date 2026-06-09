@@ -3,6 +3,7 @@ import type { Node } from "acorn";
 import { parse } from "acorn";
 import type { TSchema } from "typebox";
 import { WorkflowAgent, type WorkflowAgentOptions } from "./agent.js";
+import { formatWorkflowRoleInstructions, resolveWorkflowRole, type WorkflowRoleOptions } from "./roles.js";
 
 export interface WorkflowMetaPhase {
   title: string;
@@ -24,6 +25,7 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
   tokenBudget?: number | null;
   signal?: AbortSignal;
   hardAbortGraceMs?: number;
+  roles?: WorkflowRoleOptions;
   onLog?: (message: string) => void;
   onPhase?: (title: string) => void;
   onAgentStart?: (event: { label: string; phase?: string; prompt: string }) => void;
@@ -58,6 +60,8 @@ export interface AgentOptions<TSchemaDef extends TSchema | undefined = TSchema |
   timeoutSeconds?: number;
   /** Retry failed subagent attempts before returning null. */
   retry?: AgentRetryOptions;
+  /** Source-qualified reusable role prompt, e.g. package:reviewer. */
+  role?: string;
 }
 
 interface RuntimeState {
@@ -123,6 +127,9 @@ export async function runWorkflow<T = unknown>(
       state.agentCount++;
       const label = requestedLabel || defaultAgentLabel(assignedPhase, state.agentCount);
       options.onAgentStart?.({ label, phase: assignedPhase, prompt: taskPrompt });
+      const roleInstructions = normalizedOptions.role
+        ? formatWorkflowRoleInstructions(await resolveWorkflowRole(normalizedOptions.role, options.roles))
+        : undefined;
       try {
         throwIfAborted();
         const retry = normalizeRetryOptions(normalizedOptions.retry);
@@ -134,7 +141,7 @@ export async function runWorkflow<T = unknown>(
               schema: normalizedOptions.schema,
               tools: normalizedOptions.tools,
               signal: attemptSignal.signal,
-              instructions: buildAgentInstructions(assignedPhase, normalizedOptions),
+              instructions: buildAgentInstructions(assignedPhase, normalizedOptions, roleInstructions),
             } as any);
             attemptSignal.cleanup();
             throwIfAborted();
@@ -467,6 +474,7 @@ function normalizeAgentOptions(value: unknown): AgentOptions {
     tools: optionalStringArray(options.tools, "agent tools"),
     timeoutSeconds: optionalPositiveNumber(options.timeoutSeconds, "agent timeoutSeconds"),
     retry: normalizeAgentRetryShape(options.retry),
+    role: optionalString(options.role, "agent role"),
   };
 }
 
@@ -574,8 +582,13 @@ function defaultAgentLabel(phase: string | undefined, index: number): string {
   return phase ? `${phase} agent ${index}` : `agent ${index}`;
 }
 
-function buildAgentInstructions(phase: string | undefined, options: AgentOptions): string | undefined {
+function buildAgentInstructions(
+  phase: string | undefined,
+  options: AgentOptions,
+  roleInstructions: string | undefined,
+): string | undefined {
   const lines = [];
+  if (roleInstructions) lines.push(roleInstructions);
   if (phase) lines.push(`Workflow phase: ${phase}`);
   if (options.agentType) lines.push(`Act as workflow subagent type: ${options.agentType}`);
   if (options.isolation) lines.push(`Requested isolation: ${options.isolation}`);

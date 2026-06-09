@@ -127,6 +127,20 @@ const summary = await agent('Summarize the prior findings only.', {
 
 Side-effectful tools such as `bash`, `edit`, and `write` must be requested explicitly. Unknown tool names fail closed before the subagent launches.
 
+### Reusable subagent roles
+
+Use `opts.role` to prepend a source-qualified reusable role prompt to a subagent:
+
+```js
+const review = await agent('Review the public API for compatibility risk.', {
+  label: 'api review',
+  role: 'package:reviewer',
+  tools: ['read', 'grep', 'find', 'ls'],
+})
+```
+
+Bundled package roles include `package:reviewer`, `package:critic`, `package:scout`, `package:planner`, `package:synthesizer`, and `package:worker`. Project roles are repository-controlled and denied by default; hosts must opt in with `roles.projectRoles: 'allow'`.
+
 ### Subagent timeout and retry
 
 Use `timeoutSeconds` to cap each subagent attempt, and `retry` to retry failures before `agent()` returns `null`:
