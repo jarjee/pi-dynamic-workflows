@@ -160,6 +160,8 @@ const review = await agent('Review the public API for compatibility risk.', {
 
 Bundled package roles include `package:reviewer`, `package:critic`, `package:scout`, `package:planner`, `package:synthesizer`, and `package:worker`. Project roles are repository-controlled and denied by default; hosts must opt in with `roles.projectRoles: 'allow'`.
 
+Extension tool grants and caller skill inheritance are intentionally not ambient. `extensionTools` and `callerSkills` are reserved for future explicit grant plumbing and currently fail closed if requested.
+
 ### Large handoff artifacts
 
 Use `handoff(value, { inlineLimit })` when passing potentially large upstream results into later prompts. Small values are returned unchanged; larger values are written to a temporary mode-0600 file and replaced with instructions containing the file path.

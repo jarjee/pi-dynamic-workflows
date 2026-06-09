@@ -67,6 +67,10 @@ export interface AgentOptions<TSchemaDef extends TSchema | undefined = TSchema |
   retry?: AgentRetryOptions;
   /** Source-qualified reusable role prompt, e.g. package:reviewer. */
   role?: string;
+  /** Reserved for future explicit extension tool grants; currently fails closed. */
+  extensionTools?: unknown;
+  /** Reserved for future caller skill grants; currently fails closed. */
+  callerSkills?: unknown;
 }
 
 interface RuntimeState {
@@ -496,6 +500,12 @@ function optionalString(value: unknown, name: string): string | undefined {
 function normalizeAgentOptions(value: unknown): AgentOptions {
   if (!value || typeof value !== "object") throw new TypeError("agent options must be an object");
   const options = value as AgentOptions;
+  if (options.extensionTools !== undefined) {
+    throw new Error("agent extensionTools are not supported yet; workflow fails closed");
+  }
+  if (options.callerSkills !== undefined) {
+    throw new Error("agent callerSkills are not supported yet; workflow fails closed");
+  }
   return {
     ...options,
     label: optionalString(options.label, "agent label"),

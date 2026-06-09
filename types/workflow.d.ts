@@ -54,6 +54,10 @@ declare global {
     retry?: WorkflowAgentRetryOptions;
     /** Source-qualified reusable role prompt, e.g. package:reviewer. */
     role?: `package:${string}` | `user:${string}` | `project:${string}`;
+    /** Reserved for future explicit extension tool grants; currently unsupported and fails closed. */
+    extensionTools?: never;
+    /** Reserved for future caller skill grants; currently unsupported and fails closed. */
+    callerSkills?: never;
   }
 
   type JsonPrimitive = string | number | boolean | null;
