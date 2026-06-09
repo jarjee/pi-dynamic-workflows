@@ -108,6 +108,45 @@ return await agent('stuck', { label: 'stuck', timeoutSeconds: 0.001, retry: { at
   assert.ok(logs.some((line) => line.includes("agent stuck failed: child aborted")));
 });
 
+test("runWorkflow hard-aborts active subagents when the parent signal aborts", async () => {
+  const controller = new AbortController();
+  let abortAllCalls = 0;
+  let disposeAllCalls = 0;
+  const agentRunner = {
+    async run(_prompt: string, options: { signal?: AbortSignal }): Promise<string> {
+      setTimeout(() => controller.abort(), 1);
+      await new Promise((_resolve, reject) => {
+        options.signal?.addEventListener("abort", () => reject(new Error("child aborted")), { once: true });
+      });
+      return "unreachable";
+    },
+    abortAll() {
+      abortAllCalls++;
+    },
+    disposeAll() {
+      disposeAllCalls++;
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      runWorkflow(
+        `export const meta = {
+  name: 'abort_workflow',
+  description: 'Abort active work'
+}
+
+return await agent('stuck', { label: 'stuck' })
+`,
+        { agent: agentRunner, signal: controller.signal, hardAbortGraceMs: 0 },
+      ),
+    /child aborted/,
+  );
+
+  assert.equal(abortAllCalls, 1);
+  assert.equal(disposeAllCalls, 1);
+});
+
 test("runWorkflow accepts metadata without phases and records runtime phases", async () => {
   const result = await runWorkflow(
     `export const meta = {

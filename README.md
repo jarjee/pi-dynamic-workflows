@@ -43,7 +43,7 @@ The model will write a workflow script and call the `workflow` tool. Live progre
     #3 ✓ final summary
 ```
 
-Press `Esc` to cancel a running workflow. Active subagents are aborted and surfaced as skipped.
+Press `Esc` to cancel a running workflow. Active subagents are aborted immediately; after a short grace period the runtime disposes any still-active in-memory sessions so stuck work does not keep running in the background.
 
 ## Workflow script shape
 

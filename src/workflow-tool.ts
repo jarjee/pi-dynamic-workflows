@@ -41,6 +41,7 @@ const workflowDisplayOptions = {
 export interface WorkflowToolOptions {
   cwd?: string;
   concurrency?: number;
+  hardAbortGraceMs?: number;
 }
 
 export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefinition<typeof workflowToolSchema, any> {
@@ -98,6 +99,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           args: params.args,
           signal,
           concurrency: options.concurrency,
+          hardAbortGraceMs: options.hardAbortGraceMs,
           session: {
             modelRegistry: ctx.modelRegistry,
             model: ctx.model,

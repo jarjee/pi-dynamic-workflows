@@ -47,6 +47,7 @@ export class WorkflowAgent {
   private readonly defaultTools: string[];
   private readonly sessionOptions: Partial<CreateAgentSessionOptions>;
   private readonly instructions?: string;
+  private readonly activeSessions = new Set<{ abort(): void; dispose(): void }>();
 
   constructor(options: WorkflowAgentOptions = {}) {
     this.cwd = options.cwd ?? process.cwd();
@@ -83,6 +84,7 @@ export class WorkflowAgent {
     });
 
     let removeAbortListener: (() => void) | undefined;
+    this.activeSessions.add(session);
     try {
       if (options.signal?.aborted) throw new Error("Subagent was aborted");
       if (options.signal) {
@@ -104,8 +106,18 @@ export class WorkflowAgent {
       return this.lastAssistantText(session.messages) as AgentRunResult<TSchemaDef>;
     } finally {
       removeAbortListener?.();
+      this.activeSessions.delete(session);
       session.dispose();
     }
+  }
+
+  abortAll(_reason?: string): void {
+    for (const session of this.activeSessions) session.abort();
+  }
+
+  disposeAll(): void {
+    for (const session of this.activeSessions) session.dispose();
+    this.activeSessions.clear();
   }
 
   private selectCodingTools(names: string[]): ToolDefinition[] {
