@@ -121,7 +121,12 @@ The `workflow` tool accepts an optional host-enforced `policy` object:
     "defaultTools": ["read", "grep", "find", "ls"],
     "maxConcurrency": 4,
     "hardAbortGraceMs": 2000,
-    "projectRoles": "deny"
+    "projectRoles": "deny",
+    "modelsByStream": {
+      "light": "provider/light-model",
+      "medium": "provider/code-model",
+      "heavy": "provider/frontier-model"
+    }
   }
 }
 ```
@@ -175,19 +180,34 @@ const review = await agent('Review using this map:\n' + mapRef, {
 })
 ```
 
-### Per-agent model selection
+### Per-agent model selection and stream
 
-Use `opts.model` with a `provider/model-id` ref to run a specific subagent on a different configured model:
+Use `opts.model` with a `provider/model-id` ref to run a specific subagent on a different configured model, or use `opts.stream` to let runtime policy choose the model:
 
 ```js
-const critique = await agent('Deeply critique the proposed plan.', {
+const summary = await agent('Summarize this subsystem.', {
+  label: 'cheap summary',
+  stream: 'light',
+})
+
+const critique = await agent('Deeply critique the proposed architecture.', {
   label: 'deep critique',
-  model: 'anthropic/claude-opus-4-6',
+  stream: 'heavy',
   role: 'package:critic',
 })
 ```
 
-The model ref must exist in the active Pi model registry; unknown refs fail before the subagent launches.
+Use a light stream for cheap summarization/classification across many items, a medium stream for normal code generation and review, and a heavy stream for architecture, final synthesis, adversarial critique, and quality gates. Explicit model refs must exist in the active Pi model registry; unknown refs fail before the subagent launches.
+
+`stream` chooses the class of work/model routing. `thinkingLevel` is separate and controls model thinking effort when the selected model supports it:
+
+```js
+const review = await agent('Review the migration plan carefully.', {
+  label: 'careful review',
+  stream: 'heavy',
+  thinkingLevel: 'high',
+})
+```
 
 ### Subagent timeout and retry
 

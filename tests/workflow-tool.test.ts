@@ -21,6 +21,7 @@ test("createWorkflowTool accepts runtime policy arguments", () => {
       maxConcurrency: 2,
       hardAbortGraceMs: 0,
       projectRoles: "allow",
+      modelsByStream: { light: "provider/light-model" },
     },
   });
 
@@ -29,5 +30,6 @@ test("createWorkflowTool accepts runtime policy arguments", () => {
     maxConcurrency: 2,
     hardAbortGraceMs: 0,
     projectRoles: "allow",
+    modelsByStream: { light: "provider/light-model" },
   });
 });

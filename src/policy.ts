@@ -1,10 +1,13 @@
 import type { ProjectRolePolicy } from "./roles.js";
 
+export type WorkflowStream = "light" | "medium" | "heavy";
+
 export interface WorkflowPolicy {
   defaultTools?: string[];
   maxConcurrency?: number;
   hardAbortGraceMs?: number;
   projectRoles?: ProjectRolePolicy;
+  modelsByStream?: Partial<Record<WorkflowStream, string>>;
 }
 
 export function normalizeWorkflowPolicy(value: unknown): WorkflowPolicy {
@@ -16,6 +19,7 @@ export function normalizeWorkflowPolicy(value: unknown): WorkflowPolicy {
     maxConcurrency: optionalPositiveInteger(policy.maxConcurrency, "policy.maxConcurrency"),
     hardAbortGraceMs: optionalNonNegativeNumber(policy.hardAbortGraceMs, "policy.hardAbortGraceMs"),
     projectRoles: optionalProjectRolePolicy(policy.projectRoles),
+    modelsByStream: optionalModelsByStream(policy.modelsByStream),
   };
 }
 
@@ -46,4 +50,20 @@ function optionalProjectRolePolicy(value: unknown): ProjectRolePolicy | undefine
   if (value === undefined) return undefined;
   if (value !== "deny" && value !== "allow") throw new TypeError('policy.projectRoles must be "deny" or "allow"');
   return value;
+}
+
+function optionalModelsByStream(value: unknown): WorkflowPolicy["modelsByStream"] {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object") throw new TypeError("policy.modelsByStream must be an object");
+  const input = value as Record<string, unknown>;
+  const out: Partial<Record<WorkflowStream, string>> = {};
+  for (const stream of ["light", "medium", "heavy"] as const) {
+    const model = input[stream];
+    if (model === undefined) continue;
+    if (typeof model !== "string" || !model.trim()) {
+      throw new TypeError(`policy.modelsByStream.${stream} must be a non-empty string`);
+    }
+    out[stream] = model;
+  }
+  return out;
 }

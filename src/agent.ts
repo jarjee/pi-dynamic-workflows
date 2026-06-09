@@ -29,6 +29,8 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
   schema?: TSchemaDef;
   /** Provider/model id to use for this subagent, e.g. anthropic/claude-opus-4-6. */
   model?: string;
+  /** Model thinking effort for this subagent. */
+  thinkingLevel?: CreateAgentSessionOptions["thinkingLevel"];
   /** Built-in coding tool allowlist for this subagent. Omit to use runtime defaults; [] exposes no coding tools. */
   tools?: string[];
   /** Extra custom tools for this subagent, in addition to selected built-ins. */
@@ -90,6 +92,7 @@ export class WorkflowAgent {
       customTools,
       ...this.sessionOptions,
       ...(model ? { model } : {}),
+      ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
     });
 
     let removeAbortListener: (() => void) | undefined;

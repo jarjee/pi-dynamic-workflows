@@ -127,6 +127,52 @@ return await handoff('abcdef', { inlineLimit: 3 })
   assert.equal(await import("node:fs/promises").then((fs) => fs.readFile(path, "utf8")), "abcdef");
 });
 
+test("runWorkflow resolves stream to policy model refs", async () => {
+  const calls: Array<{ model?: string }> = [];
+  const agentRunner = {
+    async run(_prompt: string, options: { model?: string }): Promise<string> {
+      calls.push({ model: options.model });
+      return "ok";
+    },
+  };
+
+  await runWorkflow(
+    `export const meta = {
+  name: 'stream_model_ref',
+  description: 'Route by work stream'
+}
+
+return await agent('summarize', { label: 'summary', stream: 'light' })
+`,
+    { agent: agentRunner, policy: { modelsByStream: { light: "provider/light-model" } } },
+  );
+
+  assert.deepEqual(calls, [{ model: "provider/light-model" }]);
+});
+
+test("runWorkflow forwards requested thinking levels to subagents", async () => {
+  const calls: Array<{ thinkingLevel?: string }> = [];
+  const agentRunner = {
+    async run(_prompt: string, options: { thinkingLevel?: string }): Promise<string> {
+      calls.push({ thinkingLevel: options.thinkingLevel });
+      return "ok";
+    },
+  };
+
+  await runWorkflow(
+    `export const meta = {
+  name: 'thinking_level',
+  description: 'Request model thinking effort'
+}
+
+return await agent('think carefully', { label: 'thinker', thinkingLevel: 'high' })
+`,
+    { agent: agentRunner },
+  );
+
+  assert.deepEqual(calls, [{ thinkingLevel: "high" }]);
+});
+
 test("runWorkflow forwards requested model refs to subagents", async () => {
   const calls: Array<{ model?: string }> = [];
   const agentRunner = {
