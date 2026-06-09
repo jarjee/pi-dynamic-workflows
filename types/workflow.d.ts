@@ -40,7 +40,7 @@ declare global {
     phase?: string;
     /** JSON Schema for structured output. When present, the returned value is typed as unknown unless you provide a generic. */
     schema?: TSchema;
-    /** Requested model name. Currently passed as subagent guidance. */
+    /** Provider/model id to use for this subagent, e.g. anthropic/claude-opus-4-6. */
     model?: string;
     /** Requested isolation mode. */
     isolation?: "worktree";

@@ -39,6 +39,10 @@ When a parent workflow abort signal fires, the runtime calls `abortAll()` on the
 
 `agent(prompt, { role })` prepends a source-qualified reusable role prompt such as `package:reviewer`. Bundled package roles cover reviewer, critic, scout, planner, synthesizer, and worker behavior. Project roles are repository-controlled and denied by default; hosts must opt in with `roles.projectRoles: 'allow'`.
 
+### Per-agent model selection
+
+`agent(prompt, { model: 'provider/model-id' })` resolves the ref through the active Pi model registry and passes the resolved model into the child in-memory session. Unknown refs fail before launch.
+
 ### Timeout and retry
 
 `agent(prompt, { timeoutSeconds, retry })` caps each subagent attempt and retries failures before returning `null`:

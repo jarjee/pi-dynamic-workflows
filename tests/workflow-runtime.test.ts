@@ -53,6 +53,40 @@ test("WorkflowAgent applies runtime default tool allowlists when an agent omits 
   );
 });
 
+test("runWorkflow forwards requested model refs to subagents", async () => {
+  const calls: Array<{ model?: string }> = [];
+  const agentRunner = {
+    async run(_prompt: string, options: { model?: string }): Promise<string> {
+      calls.push({ model: options.model });
+      return "ok";
+    },
+  };
+
+  await runWorkflow(
+    `export const meta = {
+  name: 'model_ref',
+  description: 'Request a model'
+}
+
+return await agent('deep review', { label: 'review', model: 'anthropic/claude-opus-4-6' })
+`,
+    { agent: agentRunner },
+  );
+
+  assert.deepEqual(calls, [{ model: "anthropic/claude-opus-4-6" }]);
+});
+
+test("WorkflowAgent rejects unresolved model refs before launching", async () => {
+  const agentRunner = new WorkflowAgent({
+    session: { modelRegistry: { find: () => undefined } as any },
+  });
+
+  await assert.rejects(
+    () => agentRunner.run("do work", { model: "anthropic/missing-model" }),
+    /Unknown workflow subagent model: anthropic\/missing-model/,
+  );
+});
+
 test("runWorkflow retries failed agent attempts before returning a result", async () => {
   let attempts = 0;
   const logs: string[] = [];

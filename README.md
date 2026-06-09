@@ -141,6 +141,20 @@ const review = await agent('Review the public API for compatibility risk.', {
 
 Bundled package roles include `package:reviewer`, `package:critic`, `package:scout`, `package:planner`, `package:synthesizer`, and `package:worker`. Project roles are repository-controlled and denied by default; hosts must opt in with `roles.projectRoles: 'allow'`.
 
+### Per-agent model selection
+
+Use `opts.model` with a `provider/model-id` ref to run a specific subagent on a different configured model:
+
+```js
+const critique = await agent('Deeply critique the proposed plan.', {
+  label: 'deep critique',
+  model: 'anthropic/claude-opus-4-6',
+  role: 'package:critic',
+})
+```
+
+The model ref must exist in the active Pi model registry; unknown refs fail before the subagent launches.
+
 ### Subagent timeout and retry
 
 Use `timeoutSeconds` to cap each subagent attempt, and `retry` to retry failures before `agent()` returns `null`:
