@@ -3,6 +3,7 @@ import {
   type CreateAgentSessionOptions,
   createAgentSession,
   createCodingTools,
+  createReadOnlyTools,
   getAgentDir,
   SessionManager,
   SettingsManager,
@@ -26,6 +27,8 @@ export interface WorkflowAgentOptions {
 export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefined> {
   label?: string;
   schema?: TSchemaDef;
+  /** Provider/model id to use for this subagent, e.g. anthropic/claude-opus-4-6. */
+  model?: string;
   /** Built-in coding tool allowlist for this subagent. Omit to use runtime defaults; [] exposes no coding tools. */
   tools?: string[];
   /** Extra custom tools for this subagent, in addition to selected built-ins. */
@@ -40,6 +43,10 @@ export type AgentRunResult<TSchemaDef extends TSchema | undefined> = TSchemaDef 
 
 const DEFAULT_WORKFLOW_TOOLS = ["read", "grep", "find", "ls"];
 
+function uniqueToolsByName(tools: ToolDefinition[]): ToolDefinition[] {
+  return [...new Map(tools.map((tool) => [tool.name, tool])).values()];
+}
+
 export class WorkflowAgent {
   private readonly cwd: string;
   private readonly codingTools: ToolDefinition[];
@@ -51,7 +58,7 @@ export class WorkflowAgent {
 
   constructor(options: WorkflowAgentOptions = {}) {
     this.cwd = options.cwd ?? process.cwd();
-    this.codingTools = createCodingTools(this.cwd);
+    this.codingTools = uniqueToolsByName([...createCodingTools(this.cwd), ...createReadOnlyTools(this.cwd)]);
     this.customTools = options.tools ?? [];
     this.defaultTools = options.defaultTools ?? DEFAULT_WORKFLOW_TOOLS;
     this.sessionOptions = options.session ?? {};
@@ -74,6 +81,7 @@ export class WorkflowAgent {
     }
 
     const agentDir = getAgentDir();
+    const model = this.resolveModel(options.model);
     const { session } = await createAgentSession({
       cwd: this.cwd,
       agentDir,
@@ -81,6 +89,7 @@ export class WorkflowAgent {
       settingsManager: SettingsManager.create(this.cwd, agentDir),
       customTools,
       ...this.sessionOptions,
+      ...(model ? { model } : {}),
     });
 
     let removeAbortListener: (() => void) | undefined;
@@ -118,6 +127,19 @@ export class WorkflowAgent {
   disposeAll(): void {
     for (const session of this.activeSessions) session.dispose();
     this.activeSessions.clear();
+  }
+
+  private resolveModel(ref: string | undefined) {
+    if (!ref) return undefined;
+    const separator = ref.indexOf("/");
+    if (separator <= 0 || separator === ref.length - 1) {
+      throw new Error(`Workflow subagent model must be provider/model: ${ref}`);
+    }
+    const provider = ref.slice(0, separator);
+    const modelId = ref.slice(separator + 1);
+    const model = this.sessionOptions.modelRegistry?.find(provider, modelId);
+    if (!model) throw new Error(`Unknown workflow subagent model: ${ref}`);
+    return model;
   }
 
   private selectCodingTools(names: string[]): ToolDefinition[] {

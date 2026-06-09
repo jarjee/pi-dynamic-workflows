@@ -139,6 +139,7 @@ export async function runWorkflow<T = unknown>(
             const result = await agentRunner.run(taskPrompt, {
               label,
               schema: normalizedOptions.schema,
+              model: normalizedOptions.model,
               tools: normalizedOptions.tools,
               signal: attemptSignal.signal,
               instructions: buildAgentInstructions(assignedPhase, normalizedOptions, roleInstructions),
