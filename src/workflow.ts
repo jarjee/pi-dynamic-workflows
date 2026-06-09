@@ -6,7 +6,7 @@ import type { Node } from "acorn";
 import { parse } from "acorn";
 import type { TSchema } from "typebox";
 import { WorkflowAgent, type WorkflowAgentOptions } from "./agent.js";
-import { normalizeWorkflowPolicy, type WorkflowPolicy } from "./policy.js";
+import { normalizeWorkflowPolicy, type WorkflowPolicy, type WorkflowStream } from "./policy.js";
 import { formatWorkflowRoleInstructions, resolveWorkflowRole, type WorkflowRoleOptions } from "./roles.js";
 
 export interface WorkflowMetaPhase {
@@ -57,6 +57,10 @@ export interface AgentOptions<TSchemaDef extends TSchema | undefined = TSchema |
   phase?: string;
   schema?: TSchemaDef;
   model?: string;
+  /** Rough stream of work; host policy may map this to a model. */
+  stream?: WorkflowStream;
+  /** Model thinking effort for this subagent. */
+  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   isolation?: "worktree";
   agentType?: string;
   /** Built-in coding tools to expose to this subagent. Omit to use the runtime default; [] exposes no coding tools. */
@@ -172,7 +176,8 @@ export async function runWorkflow<T = unknown>(
             const result = await agentRunner.run(taskPrompt, {
               label,
               schema: normalizedOptions.schema,
-              model: normalizedOptions.model,
+              model: normalizedOptions.model ?? modelForStream(normalizedOptions.stream, policy),
+              thinkingLevel: normalizedOptions.thinkingLevel,
               tools: normalizedOptions.tools ?? policy.defaultTools,
               signal: attemptSignal.signal,
               instructions: buildAgentInstructions(assignedPhase, normalizedOptions, roleInstructions),
@@ -511,6 +516,8 @@ function normalizeAgentOptions(value: unknown): AgentOptions {
     label: optionalString(options.label, "agent label"),
     phase: optionalString(options.phase, "agent phase"),
     model: optionalString(options.model, "agent model"),
+    stream: optionalStream(options.stream),
+    thinkingLevel: optionalThinkingLevel(options.thinkingLevel),
     isolation: options.isolation,
     agentType: optionalString(options.agentType, "agent type"),
     tools: optionalStringArray(options.tools, "agent tools"),
@@ -524,6 +531,33 @@ function optionalStringArray(value: unknown, name: string): string[] | undefined
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) throw new TypeError(`${name} must be an array of strings`);
   return Array.from(value, (item, index) => requireString(item, `${name}[${index}]`));
+}
+
+function optionalStream(value: unknown): WorkflowStream | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "light" && value !== "medium" && value !== "heavy") {
+    throw new TypeError('agent stream must be "light", "medium", or "heavy"');
+  }
+  return value;
+}
+
+function optionalThinkingLevel(value: unknown): AgentOptions["thinkingLevel"] {
+  if (value === undefined) return undefined;
+  if (
+    value !== "off" &&
+    value !== "minimal" &&
+    value !== "low" &&
+    value !== "medium" &&
+    value !== "high" &&
+    value !== "xhigh"
+  ) {
+    throw new TypeError('agent thinkingLevel must be "off", "minimal", "low", "medium", "high", or "xhigh"');
+  }
+  return value;
+}
+
+function modelForStream(stream: WorkflowStream | undefined, policy: WorkflowPolicy): string | undefined {
+  return stream ? policy.modelsByStream?.[stream] : undefined;
 }
 
 function optionalPositiveNumber(value: unknown, name: string): number | undefined {
@@ -649,6 +683,8 @@ function buildAgentInstructions(
   if (phase) lines.push(`Workflow phase: ${phase}`);
   if (options.agentType) lines.push(`Act as workflow subagent type: ${options.agentType}`);
   if (options.isolation) lines.push(`Requested isolation: ${options.isolation}`);
+  if (options.stream) lines.push(`Requested work stream: ${options.stream}`);
+  if (options.thinkingLevel) lines.push(`Requested thinking level: ${options.thinkingLevel}`);
   if (options.model) lines.push(`Requested model: ${options.model}`);
   return lines.length ? lines.join("\n") : undefined;
 }

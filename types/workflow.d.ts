@@ -33,6 +33,8 @@ declare global {
     backoff?: "constant" | "exponential";
   }
 
+  type WorkflowStream = "light" | "medium" | "heavy";
+
   interface WorkflowAgentOptions<TSchema = JsonSchema> {
     /** Short label shown in the live progress UI. */
     label?: string;
@@ -42,6 +44,8 @@ declare global {
     schema?: TSchema;
     /** Provider/model id to use for this subagent, e.g. anthropic/claude-opus-4-6. */
     model?: string;
+    /** Rough task stream class; host policy may map this to a model. */
+    stream?: WorkflowStream;
     /** Requested isolation mode. */
     isolation?: "worktree";
     /** Requested subagent role/type. */
@@ -89,6 +93,7 @@ declare global {
     maxConcurrency?: number;
     hardAbortGraceMs?: number;
     projectRoles?: "deny" | "allow";
+    modelsByStream?: Partial<Record<WorkflowStream, string>>;
   }
 
   /** Spawn a subagent. Returns final text unless a structured-output schema is used with an explicit generic. */

@@ -18,6 +18,13 @@ const workflowPolicySchema = Type.Optional(
     maxConcurrency: Type.Optional(Type.Integer({ minimum: 1 })),
     hardAbortGraceMs: Type.Optional(Type.Number({ minimum: 0 })),
     projectRoles: Type.Optional(Type.Union([Type.Literal("deny"), Type.Literal("allow")])),
+    modelsByStream: Type.Optional(
+      Type.Object({
+        light: Type.Optional(Type.String()),
+        medium: Type.Optional(Type.String()),
+        heavy: Type.Optional(Type.String()),
+      }),
+    ),
   }),
 );
 
@@ -73,13 +80,14 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       "For workflow, write plain JavaScript after the meta export. Do not use TypeScript syntax, imports, require(), fs, Date.now(), Math.random(), or new Date().",
       "For workflow, available globals are agent(prompt, opts), parallel(thunks), pipeline(items, ...stages), handoff(value, opts), phase(title), log(message), args, cwd, process.cwd(), policy, and budget. Every workflow must call agent() at least once; do not use workflow only to declare phases or return a static object.",
       "For workflow, call phase(title) when a new group of work starts. Phase names may be conditional or built in a loop; do not predeclare speculative phases just in case.",
-      "For workflow, prefer it for decomposable work: repository inspection, independent research/checks, multi-perspective review, or fan-out/fan-in synthesis. Do not use it for a single quick file read/edit or when ordinary tools are enough.",
+      "For workflow, prefer it for decomposable work: repository inspection, independent research/checks, multi-perspective review, broad audits, adversarial claim checking, repeatable quality gates, or fan-out/fan-in synthesis. Do not use it for a single quick file read/edit or when ordinary tools are enough.",
+      "For workflow, pick work stream based on required power: light for cheap summarization/classification over many items, medium for normal code generation or repo review, and heavy for architecture, final synthesis, adversarial critique, or quality gates.",
       "For workflow, parallel() takes functions, not promises: use `await parallel(items.map(item => () => agent('...', { label: '...' })))`, never `await parallel(items.map(item => agent(...)))`. Results are returned in input order.",
       "For workflow, pipeline(items, ...stages) runs each item through stages sequentially, while different items may run concurrently. Each stage receives (previousValue, originalItem, index).",
       "For workflow, every agent() call should include a unique short label option, 2-5 words, such as { label: 'repo inventory' } or { label: 'source modules' }; unique labels make live status and error reporting readable.",
       "For workflow, every agent() call may include a built-in tool allowlist such as { tools: ['read', 'grep', 'find', 'ls'] }. Omit tools for the runtime default read-only tools; use tools: [] for no coding tools. Add bash, edit, or write only when the subagent truly needs side effects.",
       "For workflow, agent() may include a source-qualified reusable role such as { role: 'package:reviewer' }. Use package roles for common reviewer, critic, scout, planner, synthesizer, and worker behavior. Project roles are repository-controlled and denied unless the host explicitly allows them.",
-      "For workflow, agent() may include model: 'provider/model-id' to run that subagent on a configured Pi model. Unknown model refs fail before launch.",
+      "For workflow, agent() may include model: 'provider/model-id' to run that subagent on a configured Pi model, or stream: 'light' | 'medium' | 'heavy' to let runtime policy route the model. thinkingLevel is separate and may be 'off', 'minimal', 'low', 'medium', 'high', or 'xhigh'. Unknown explicit model refs fail before launch.",
       "For workflow, agent() may include timeoutSeconds and retry: { attempts, delayMs, backoff }. retry.attempts includes the first attempt; failed intermediate attempts are logged, and exhausted branches return null unless the workflow is aborted.",
       "For workflow, failed agent(), parallel(), or pipeline() branches return null and log the failure unless the workflow is aborted. Check for nulls before synthesizing conclusions.",
       "For workflow, use handoff(value, { inlineLimit }) before passing potentially large upstream outputs to later agents; it returns inline text for small values and a temp-file instruction for large values.",
