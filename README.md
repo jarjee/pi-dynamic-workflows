@@ -127,6 +127,21 @@ const summary = await agent('Summarize the prior findings only.', {
 
 Side-effectful tools such as `bash`, `edit`, and `write` must be requested explicitly. Unknown tool names fail closed before the subagent launches.
 
+### Subagent timeout and retry
+
+Use `timeoutSeconds` to cap each subagent attempt, and `retry` to retry failures before `agent()` returns `null`:
+
+```js
+const result = await agent('Run a flaky inspection.', {
+  label: 'flaky inspection',
+  tools: ['read', 'bash'],
+  timeoutSeconds: 900,
+  retry: { attempts: 3, delayMs: 1000, backoff: 'exponential' },
+})
+```
+
+`retry.attempts` includes the first attempt. Failed intermediate attempts are logged; if all attempts fail, the branch returns `null` unless the whole workflow was aborted.
+
 ### Structured subagent output
 
 Pass a JSON Schema via `opts.schema` and the subagent will return a validated object:
