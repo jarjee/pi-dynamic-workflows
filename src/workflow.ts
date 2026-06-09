@@ -19,10 +19,11 @@ export interface WorkflowMeta {
 
 export interface WorkflowRunOptions extends WorkflowAgentOptions {
   args?: unknown;
-  agent?: Pick<WorkflowAgent, "run">;
+  agent?: Pick<WorkflowAgent, "run"> & Partial<Pick<WorkflowAgent, "abortAll" | "disposeAll">>;
   concurrency?: number;
   tokenBudget?: number | null;
   signal?: AbortSignal;
+  hardAbortGraceMs?: number;
   onLog?: (message: string) => void;
   onPhase?: (title: string) => void;
   onAgentStart?: (event: { label: string; phase?: string; prompt: string }) => void;
@@ -86,6 +87,7 @@ export async function runWorkflow<T = unknown>(
   );
   const limiter = createLimiter(concurrency);
   const pendingAgentRuns = new Set<Promise<unknown>>();
+  const hardAbort = createHardAbortHandler(agentRunner, options.signal, options.hardAbortGraceMs ?? 2000);
 
   const log = (message: string) => {
     const text = String(message);
@@ -247,17 +249,21 @@ export async function runWorkflow<T = unknown>(
   });
 
   const wrapped = `(async () => {\n${body}\n})()`;
-  const result = await new vm.Script(wrapped, { filename: `${meta.name || "workflow"}.js` }).runInContext(context);
-  await Promise.allSettled([...pendingAgentRuns]);
-  assertStructuredCloneable(result, "workflow result");
-  return {
-    meta,
-    result: result as T,
-    logs: state.logs,
-    phases: state.phases,
-    agentCount: state.agentCount,
-    durationMs: Date.now() - started,
-  };
+  try {
+    const result = await new vm.Script(wrapped, { filename: `${meta.name || "workflow"}.js` }).runInContext(context);
+    await Promise.allSettled([...pendingAgentRuns]);
+    assertStructuredCloneable(result, "workflow result");
+    return {
+      meta,
+      result: result as T,
+      logs: state.logs,
+      phases: state.phases,
+      agentCount: state.agentCount,
+      durationMs: Date.now() - started,
+    };
+  } finally {
+    hardAbort.cleanup();
+  }
 }
 
 export function parseWorkflowScript(script: string): { meta: WorkflowMeta; body: string } {
@@ -509,6 +515,30 @@ function normalizeRetryOptions(value: AgentRetryOptions | undefined): Required<A
 function retryDelayMs(retry: Required<AgentRetryOptions>, attempt: number): number {
   if (retry.delayMs === 0) return 0;
   return retry.backoff === "exponential" ? retry.delayMs * 2 ** (attempt - 1) : retry.delayMs;
+}
+
+function createHardAbortHandler(
+  agentRunner: Pick<WorkflowAgent, "run"> & Partial<Pick<WorkflowAgent, "abortAll" | "disposeAll">>,
+  signal: AbortSignal | undefined,
+  hardAbortGraceMs: number,
+) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const hardAbort = () => {
+    agentRunner.abortAll?.("Workflow aborted");
+    if (hardAbortGraceMs <= 0) {
+      agentRunner.disposeAll?.();
+      return;
+    }
+    timeout = setTimeout(() => agentRunner.disposeAll?.(), hardAbortGraceMs);
+  };
+  if (signal?.aborted) hardAbort();
+  else signal?.addEventListener("abort", hardAbort, { once: true });
+  return {
+    cleanup() {
+      if (timeout) clearTimeout(timeout);
+      signal?.removeEventListener("abort", hardAbort);
+    },
+  };
 }
 
 function createAttemptSignal(parent: AbortSignal | undefined, timeoutSeconds: number | undefined) {

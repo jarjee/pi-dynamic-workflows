@@ -31,6 +31,10 @@ The runtime should absorb useful `pi-multiagent` safety and execution features a
 
 Use `tools: []` for a subagent with no coding tools. Unknown or unavailable names fail closed before launching the subagent.
 
+### Hard abort cleanup
+
+When a parent workflow abort signal fires, the runtime calls `abortAll()` on the active subagent runner immediately. After `hardAbortGraceMs` it calls `disposeAll()` so stuck in-memory sessions are cleaned up. The default grace period is 2000ms; extension hosts can override it through `createWorkflowTool({ hardAbortGraceMs })` or `runWorkflow({ hardAbortGraceMs })`.
+
 ### Timeout and retry
 
 `agent(prompt, { timeoutSeconds, retry })` caps each subagent attempt and retries failures before returning `null`:
