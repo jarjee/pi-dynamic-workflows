@@ -93,6 +93,9 @@ declare global {
   /** Run independent async tasks concurrently. Pass functions, not already-created promises. */
   function parallel<T>(thunks: Array<() => Promise<T>>): Promise<T[]>;
 
+  /** Materialize a large upstream value to a temp file when it exceeds inlineLimit. */
+  function handoff(value: unknown, options?: { inlineLimit?: number }): Promise<string>;
+
   /** Run each item through sequential async stages while different items may run concurrently. */
   function pipeline<TItem, TResult = unknown>(
     items: TItem[],

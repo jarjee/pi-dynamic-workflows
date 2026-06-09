@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import vm from "node:vm";
 import type { Node } from "acorn";
 import { parse } from "acorn";
@@ -122,6 +125,16 @@ export async function runWorkflow<T = unknown>(
     spent: () => state.spent,
     remaining: () => (options.tokenBudget == null ? Infinity : Math.max(0, options.tokenBudget - state.spent)),
   });
+
+  const handoff = async (value: unknown, handoffOptions: unknown = {}) => {
+    const options = normalizeHandoffOptions(handoffOptions);
+    const text = stringifyHandoffValue(value);
+    if (text.length <= options.inlineLimit) return text;
+    const dir = await mkdtemp(join(tmpdir(), "pi-workflow-handoff-"));
+    const filePath = join(dir, "handoff.txt");
+    await writeFile(filePath, text, { encoding: "utf8", mode: 0o600 });
+    return `Workflow handoff artifact:\npath: ${JSON.stringify(filePath)}\nRead this file when you need the full upstream handoff.`;
+  };
 
   const throwIfAborted = () => {
     if (options.signal?.aborted) throw new Error("workflow aborted");
@@ -248,6 +261,7 @@ export async function runWorkflow<T = unknown>(
     agent,
     parallel,
     pipeline,
+    handoff,
     log,
     phase,
     args: options.args,
@@ -584,6 +598,21 @@ function createAttemptSignal(parent: AbortSignal | undefined, timeoutSeconds: nu
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function normalizeHandoffOptions(value: unknown): { inlineLimit: number } {
+  if (value === undefined || value === null) return { inlineLimit: 100000 };
+  if (typeof value !== "object") throw new TypeError("handoff options must be an object");
+  const inlineLimit = (value as { inlineLimit?: unknown }).inlineLimit;
+  if (inlineLimit === undefined) return { inlineLimit: 100000 };
+  if (typeof inlineLimit !== "number" || !Number.isInteger(inlineLimit) || inlineLimit < 0) {
+    throw new TypeError("handoff inlineLimit must be a non-negative integer");
+  }
+  return { inlineLimit };
+}
+
+function stringifyHandoffValue(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
 
 function assertStructuredCloneable(value: unknown, name: string): void {
   try {
