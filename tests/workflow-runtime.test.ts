@@ -76,6 +76,40 @@ return await agent('do work', { label: 'worker' })
   assert.deepEqual(calls, [{ tools: ["read"] }]);
 });
 
+test("runWorkflow fails closed for extension tool grants until supported", async () => {
+  await assert.rejects(
+    () =>
+      runWorkflow(
+        `export const meta = {
+  name: 'extension_tools_denied',
+  description: 'Do not silently grant extension tools'
+}
+
+return await agent('research', { label: 'research', extensionTools: [{ name: 'exa_search' }] })
+`,
+        { agent: fakeAgent },
+      ),
+    /agent extensionTools are not supported yet; workflow fails closed/,
+  );
+});
+
+test("runWorkflow fails closed for caller skill grants until supported", async () => {
+  await assert.rejects(
+    () =>
+      runWorkflow(
+        `export const meta = {
+  name: 'caller_skills_denied',
+  description: 'Do not silently inherit caller skills'
+}
+
+return await agent('diagnose', { label: 'diagnose', callerSkills: { include: ['diagnose'] } })
+`,
+        { agent: fakeAgent },
+      ),
+    /agent callerSkills are not supported yet; workflow fails closed/,
+  );
+});
+
 test("runWorkflow handoff writes large values to a temp artifact", async () => {
   const result = await runWorkflow(
     `export const meta = {

@@ -18,6 +18,7 @@ The runtime should absorb useful `pi-multiagent` safety and execution features a
 3. **Default to read-only.** Subagents should not receive `bash`, `edit`, or `write` unless the workflow explicitly requests them and policy permits them.
 4. **Prefer visible abortability over perfect sandboxing.** Workflows need clear progress, quick cancellation, hard cleanup, and honest reporting of what was running when stopped.
 5. **No ambient power by accident.** Do not implicitly inherit extension tools, project-controlled prompts, skills, or broad coding tools.
+6. **Unsupported grants fail closed.** Until explicit extension-tool or caller-skill grant plumbing is implemented, scripts that request `extensionTools` or `callerSkills` fail instead of silently receiving or ignoring power.
 
 ## Absorbed features
 
@@ -42,6 +43,10 @@ When a parent workflow abort signal fires, the runtime calls `abortAll()` on the
 ### Reusable roles
 
 `agent(prompt, { role })` prepends a source-qualified reusable role prompt such as `package:reviewer`. Bundled package roles cover reviewer, critic, scout, planner, synthesizer, and worker behavior. Project roles are repository-controlled and denied by default; hosts must opt in with `roles.projectRoles: 'allow'`.
+
+### Unsupported grants fail closed
+
+`agent(..., { extensionTools })` and `agent(..., { callerSkills })` are reserved for future work. The runtime currently rejects them explicitly so a generated workflow cannot accidentally assume ambient extension tools or caller-visible skills are available.
 
 ### Large handoff artifacts
 
