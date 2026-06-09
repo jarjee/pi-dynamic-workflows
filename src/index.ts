@@ -16,6 +16,8 @@ export {
   renderWorkflowLines,
   renderWorkflowText,
 } from "./display.js";
+export type { ProjectRolePolicy, ResolvedWorkflowRole, WorkflowRoleOptions, WorkflowRoleSource } from "./roles.js";
+export { formatWorkflowRoleInstructions, resolveWorkflowRole } from "./roles.js";
 export type { StructuredOutputCapture, StructuredOutputToolOptions } from "./structured-output.js";
 export { createStructuredOutputTool } from "./structured-output.js";
 export type {

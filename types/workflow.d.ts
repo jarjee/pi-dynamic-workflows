@@ -52,6 +52,8 @@ declare global {
     timeoutSeconds?: number;
     /** Retry failed subagent attempts before returning null. */
     retry?: WorkflowAgentRetryOptions;
+    /** Source-qualified reusable role prompt, e.g. package:reviewer. */
+    role?: `package:${string}` | `user:${string}` | `project:${string}`;
   }
 
   type JsonPrimitive = string | number | boolean | null;

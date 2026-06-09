@@ -15,7 +15,9 @@
     }
   },
   "files": [
+    "agents/",
     "dist/",
+    "docs/",
     "extensions/",
     "src/",
     "types/",

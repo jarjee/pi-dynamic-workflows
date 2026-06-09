@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { WorkflowAgent } from "../src/agent.js";
 import { runWorkflow } from "../src/workflow.js";
@@ -106,6 +109,60 @@ return await agent('stuck', { label: 'stuck', timeoutSeconds: 0.001, retry: { at
   assert.equal(signals.length, 1);
   assert.equal(signals[0].aborted, true);
   assert.ok(logs.some((line) => line.includes("agent stuck failed: child aborted")));
+});
+
+test("runWorkflow prepends source-qualified role prompts to subagent instructions", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "workflow-roles-"));
+  try {
+    await writeFile(join(dir, "reviewer.md"), "You are a careful reviewer.");
+    const calls: Array<{ instructions?: string }> = [];
+    const agentRunner = {
+      async run(_prompt: string, options: { instructions?: string }): Promise<string> {
+        calls.push({ instructions: options.instructions });
+        return "ok";
+      },
+    };
+
+    await runWorkflow(
+      `export const meta = {
+  name: 'role_prompt',
+  description: 'Use a package role'
+}
+
+return await agent('review this', { label: 'review', role: 'package:reviewer' })
+`,
+      { agent: agentRunner, roles: { packageDir: dir } },
+    );
+
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].instructions ?? "", /Role package:reviewer/);
+    assert.match(calls[0].instructions ?? "", /You are a careful reviewer\./);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("runWorkflow denies project roles unless explicitly allowed", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "workflow-project-roles-"));
+  try {
+    await writeFile(join(dir, "worker.md"), "Project-controlled worker.");
+    await assert.rejects(
+      () =>
+        runWorkflow(
+          `export const meta = {
+  name: 'project_role_denied',
+  description: 'Deny project role by default'
+}
+
+return await agent('work', { label: 'worker', role: 'project:worker' })
+`,
+          { agent: fakeAgent, roles: { projectDir: dir } },
+        ),
+      /Project workflow roles are denied by policy: project:worker/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("runWorkflow hard-aborts active subagents when the parent signal aborts", async () => {

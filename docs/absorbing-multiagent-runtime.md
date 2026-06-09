@@ -35,6 +35,10 @@ Use `tools: []` for a subagent with no coding tools. Unknown or unavailable name
 
 When a parent workflow abort signal fires, the runtime calls `abortAll()` on the active subagent runner immediately. After `hardAbortGraceMs` it calls `disposeAll()` so stuck in-memory sessions are cleaned up. The default grace period is 2000ms; extension hosts can override it through `createWorkflowTool({ hardAbortGraceMs })` or `runWorkflow({ hardAbortGraceMs })`.
 
+### Reusable roles
+
+`agent(prompt, { role })` prepends a source-qualified reusable role prompt such as `package:reviewer`. Bundled package roles cover reviewer, critic, scout, planner, synthesizer, and worker behavior. Project roles are repository-controlled and denied by default; hosts must opt in with `roles.projectRoles: 'allow'`.
+
 ### Timeout and retry
 
 `agent(prompt, { timeoutSeconds, retry })` caps each subagent attempt and retries failures before returning `null`:
