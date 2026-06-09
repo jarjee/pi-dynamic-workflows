@@ -53,6 +53,29 @@ test("WorkflowAgent applies runtime default tool allowlists when an agent omits 
   );
 });
 
+test("runWorkflow applies policy default tool allowlists to omitted agent tools", async () => {
+  const calls: Array<{ tools?: string[] }> = [];
+  const agentRunner = {
+    async run(_prompt: string, options: { tools?: string[] }): Promise<string> {
+      calls.push({ tools: options.tools });
+      return "ok";
+    },
+  };
+
+  await runWorkflow(
+    `export const meta = {
+  name: 'policy_default_tools',
+  description: 'Use policy default tools'
+}
+
+return await agent('do work', { label: 'worker' })
+`,
+    { agent: agentRunner, policy: { defaultTools: ["read"] } },
+  );
+
+  assert.deepEqual(calls, [{ tools: ["read"] }]);
+});
+
 test("runWorkflow forwards requested model refs to subagents", async () => {
   const calls: Array<{ model?: string }> = [];
   const agentRunner = {

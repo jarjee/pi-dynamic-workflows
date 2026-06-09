@@ -21,6 +21,10 @@ The runtime should absorb useful `pi-multiagent` safety and execution features a
 
 ## Absorbed features
 
+### Runtime policy
+
+Hosts can pass `policy` to `runWorkflow(...)` or the `workflow` tool. The normalized policy controls default tools, maximum concurrency, hard-abort grace, and project-role allowance. The workflow script can inspect the frozen `policy` global, but runtime enforcement does not trust script-authored values.
+
 ### Tool allowlists
 
 `agent(prompt, { tools })` now accepts a built-in coding tool allowlist. If omitted, the runtime default is read-only:

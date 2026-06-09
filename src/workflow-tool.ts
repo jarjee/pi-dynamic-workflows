@@ -9,7 +9,17 @@ import {
   renderWorkflowText,
   type WorkflowSnapshot,
 } from "./display.js";
+import { normalizeWorkflowPolicy, type WorkflowPolicy } from "./policy.js";
 import { parseWorkflowScript, runWorkflow, type WorkflowRunResult } from "./workflow.js";
+
+const workflowPolicySchema = Type.Optional(
+  Type.Object({
+    defaultTools: Type.Optional(Type.Array(Type.String())),
+    maxConcurrency: Type.Optional(Type.Integer({ minimum: 1 })),
+    hardAbortGraceMs: Type.Optional(Type.Number({ minimum: 0 })),
+    projectRoles: Type.Optional(Type.Union([Type.Literal("deny"), Type.Literal("allow")])),
+  }),
+);
 
 const workflowToolSchema = Type.Object({
   script: Type.String({
@@ -23,11 +33,13 @@ const workflowToolSchema = Type.Object({
   args: Type.Optional(
     Type.Any({ description: "Optional JSON value exposed to the workflow script as global `args`." }),
   ),
+  policy: workflowPolicySchema,
 });
 
 export type WorkflowToolInput = {
   script: string;
   args?: unknown;
+  policy?: WorkflowPolicy;
 };
 
 const workflowDisplayOptions = {
@@ -102,6 +114,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           signal,
           concurrency: options.concurrency,
           hardAbortGraceMs: options.hardAbortGraceMs,
+          policy: params.policy,
           session: {
             modelRegistry: ctx.modelRegistry,
             model: ctx.model,
@@ -199,7 +212,11 @@ function normalizeWorkflowToolArgs(args: unknown): WorkflowToolInput {
   if (!args || typeof args !== "object") throw new Error("workflow requires an object argument with a script string");
   const value = args as Record<string, unknown>;
   if (typeof value.script !== "string") throw new Error("workflow requires `script` to be a string");
-  return { ...value, script: normalizeWorkflowScript(value.script) } as WorkflowToolInput;
+  return {
+    ...value,
+    script: normalizeWorkflowScript(value.script),
+    policy: normalizeWorkflowPolicy(value.policy),
+  } as WorkflowToolInput;
 }
 
 function normalizeWorkflowScript(script: string): string {

@@ -3,6 +3,7 @@ import type { Node } from "acorn";
 import { parse } from "acorn";
 import type { TSchema } from "typebox";
 import { WorkflowAgent, type WorkflowAgentOptions } from "./agent.js";
+import { normalizeWorkflowPolicy, type WorkflowPolicy } from "./policy.js";
 import { formatWorkflowRoleInstructions, resolveWorkflowRole, type WorkflowRoleOptions } from "./roles.js";
 
 export interface WorkflowMetaPhase {
@@ -26,6 +27,7 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
   signal?: AbortSignal;
   hardAbortGraceMs?: number;
   roles?: WorkflowRoleOptions;
+  policy?: WorkflowPolicy;
   onLog?: (message: string) => void;
   onPhase?: (title: string) => void;
   onAgentStart?: (event: { label: string; phase?: string; prompt: string }) => void;
@@ -84,14 +86,23 @@ export async function runWorkflow<T = unknown>(
   const started = Date.now();
   const { meta, body } = parseWorkflowScript(script);
   const state: RuntimeState = { logs: [], phases: [], agentCount: 0, spent: 0 };
-  const agentRunner = options.agent ?? new WorkflowAgent(options);
+  const policy = normalizeWorkflowPolicy(options.policy);
+  const agentRunner =
+    options.agent ?? new WorkflowAgent({ ...options, defaultTools: policy.defaultTools ?? options.defaultTools });
   const concurrency = Math.max(
     1,
-    Math.min(options.concurrency ?? Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 8) - 2), 16),
+    Math.min(
+      policy.maxConcurrency ?? options.concurrency ?? Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 8) - 2),
+      16,
+    ),
   );
   const limiter = createLimiter(concurrency);
   const pendingAgentRuns = new Set<Promise<unknown>>();
-  const hardAbort = createHardAbortHandler(agentRunner, options.signal, options.hardAbortGraceMs ?? 2000);
+  const hardAbort = createHardAbortHandler(
+    agentRunner,
+    options.signal,
+    policy.hardAbortGraceMs ?? options.hardAbortGraceMs ?? 2000,
+  );
 
   const log = (message: string) => {
     const text = String(message);
@@ -128,7 +139,12 @@ export async function runWorkflow<T = unknown>(
       const label = requestedLabel || defaultAgentLabel(assignedPhase, state.agentCount);
       options.onAgentStart?.({ label, phase: assignedPhase, prompt: taskPrompt });
       const roleInstructions = normalizedOptions.role
-        ? formatWorkflowRoleInstructions(await resolveWorkflowRole(normalizedOptions.role, options.roles))
+        ? formatWorkflowRoleInstructions(
+            await resolveWorkflowRole(normalizedOptions.role, {
+              ...options.roles,
+              projectRoles: policy.projectRoles ?? options.roles?.projectRoles,
+            }),
+          )
         : undefined;
       try {
         throwIfAborted();
@@ -140,7 +156,7 @@ export async function runWorkflow<T = unknown>(
               label,
               schema: normalizedOptions.schema,
               model: normalizedOptions.model,
-              tools: normalizedOptions.tools,
+              tools: normalizedOptions.tools ?? policy.defaultTools,
               signal: attemptSignal.signal,
               instructions: buildAgentInstructions(assignedPhase, normalizedOptions, roleInstructions),
             } as any);
@@ -235,6 +251,7 @@ export async function runWorkflow<T = unknown>(
     log,
     phase,
     args: options.args,
+    policy: Object.freeze({ ...policy }),
     cwd: options.cwd ?? process.cwd(),
     process: Object.freeze({ cwd: () => options.cwd ?? process.cwd() }),
     budget,

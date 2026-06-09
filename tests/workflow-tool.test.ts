@@ -10,3 +10,24 @@ test("createWorkflowTool describes phases as optional and dynamic", () => {
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("meta.phases is optional metadata")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("Phase names may be conditional or built in a loop")));
 });
+
+test("createWorkflowTool accepts runtime policy arguments", () => {
+  const tool = createWorkflowTool();
+
+  const prepared = tool.prepareArguments?.({
+    script: "export const meta = { name: 'policy', description: 'policy' }\nreturn 1",
+    policy: {
+      defaultTools: ["read"],
+      maxConcurrency: 2,
+      hardAbortGraceMs: 0,
+      projectRoles: "allow",
+    },
+  });
+
+  assert.deepEqual((prepared as any).policy, {
+    defaultTools: ["read"],
+    maxConcurrency: 2,
+    hardAbortGraceMs: 0,
+    projectRoles: "allow",
+  });
+});
