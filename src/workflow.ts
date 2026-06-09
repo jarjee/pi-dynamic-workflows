@@ -45,6 +45,8 @@ export interface AgentOptions<TSchemaDef extends TSchema | undefined = TSchema |
   model?: string;
   isolation?: "worktree";
   agentType?: string;
+  /** Built-in coding tools to expose to this subagent. Omit to use the runtime default; [] exposes no coding tools. */
+  tools?: string[];
 }
 
 interface RuntimeState {
@@ -114,6 +116,7 @@ export async function runWorkflow<T = unknown>(
         const result = await agentRunner.run(taskPrompt, {
           label,
           schema: normalizedOptions.schema,
+          tools: normalizedOptions.tools,
           signal: options.signal,
           instructions: buildAgentInstructions(assignedPhase, normalizedOptions),
         } as any);
@@ -423,7 +426,14 @@ function normalizeAgentOptions(value: unknown): AgentOptions {
     model: optionalString(options.model, "agent model"),
     isolation: options.isolation,
     agentType: optionalString(options.agentType, "agent type"),
+    tools: optionalStringArray(options.tools, "agent tools"),
   };
+}
+
+function optionalStringArray(value: unknown, name: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new TypeError(`${name} must be an array of strings`);
+  return Array.from(value, (item, index) => requireString(item, `${name}[${index}]`));
 }
 
 function assertStructuredCloneable(value: unknown, name: string): void {

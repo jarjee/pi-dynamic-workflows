@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { WorkflowAgent } from "../src/agent.js";
 import { runWorkflow } from "../src/workflow.js";
 
 const fakeAgent = {
@@ -7,6 +8,47 @@ const fakeAgent = {
     return `result:${prompt}`;
   },
 };
+
+test("runWorkflow forwards requested tool allowlists to subagents", async () => {
+  const calls: Array<{ tools?: string[] }> = [];
+  const agentRunner = {
+    async run(_prompt: string, options: { tools?: string[] }): Promise<string> {
+      calls.push({ tools: options.tools });
+      return "ok";
+    },
+  };
+
+  await runWorkflow(
+    `export const meta = {
+  name: 'tool_allowlist',
+  description: 'Request read-only tools'
+}
+
+return await agent('review docs', { label: 'review', tools: ['read', 'grep'] })
+`,
+    { agent: agentRunner },
+  );
+
+  assert.deepEqual(calls, [{ tools: ["read", "grep"] }]);
+});
+
+test("WorkflowAgent rejects unknown tool allowlist names before launching", async () => {
+  const agentRunner = new WorkflowAgent();
+
+  await assert.rejects(
+    () => agentRunner.run("do work", { tools: ["not-a-real-tool"] }),
+    /Unknown or unavailable workflow subagent tool: not-a-real-tool/,
+  );
+});
+
+test("WorkflowAgent applies runtime default tool allowlists when an agent omits tools", async () => {
+  const agentRunner = new WorkflowAgent({ defaultTools: ["not-a-real-default-tool"] });
+
+  await assert.rejects(
+    () => agentRunner.run("do work"),
+    /Unknown or unavailable workflow subagent tool: not-a-real-default-tool/,
+  );
+});
 
 test("runWorkflow accepts metadata without phases and records runtime phases", async () => {
   const result = await runWorkflow(
