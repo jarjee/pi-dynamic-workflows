@@ -140,6 +140,7 @@ export async function runWorkflow<T = unknown>(
 
   const handoff = async (value: unknown, handoffOptions: unknown = {}) => {
     const options = normalizeHandoffOptions(handoffOptions);
+    rejectPromiseValue(value, "handoff value");
     const text = stringifyHandoffValue(value);
     if (text.length <= options.inlineLimit) return text;
     const dir = await mkdtemp(join(tmpdir(), "pi-workflow-handoff-"));
@@ -236,6 +237,7 @@ export async function runWorkflow<T = unknown>(
     throwIfAborted();
     if (budget.total !== null && budget.remaining() <= 0) throw new Error("workflow token budget exhausted");
     const taskPrompt = requireString(prompt, "agent prompt");
+    rejectAccidentalPromiseText(taskPrompt, "agent prompt");
     const normalizedOptions = normalizeAgentOptions(agentOptions);
     const assignedPhase = normalizedOptions.phase ?? state.currentPhase;
     const id = `agent_${nextAgentId++}`;
@@ -338,7 +340,7 @@ export async function runWorkflow<T = unknown>(
               attemptSignal.cleanup();
               if (options.signal?.aborted) {
                 status = "aborted";
-                throw error;
+                throw new Error("workflow aborted");
               }
               const message = error instanceof Error ? error.message : String(error);
               const remaining = retry.attempts - attempt;
@@ -359,7 +361,7 @@ export async function runWorkflow<T = unknown>(
         } catch (error) {
           if (options.signal?.aborted) {
             status = "aborted";
-            throw error;
+            throw new Error("workflow aborted");
           }
           status = "failed";
           log(`agent ${label} failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -394,7 +396,7 @@ export async function runWorkflow<T = unknown>(
         try {
           return await thunk();
         } catch (error) {
-          if (options.signal?.aborted) throw error;
+          if (options.signal?.aborted) throw new Error("workflow aborted");
           log(`parallel[${index}] failed: ${error instanceof Error ? error.message : String(error)}`);
           return null;
         }
@@ -420,7 +422,7 @@ export async function runWorkflow<T = unknown>(
             value = await stage(value, item, index);
             throwIfAborted();
           } catch (error) {
-            if (options.signal?.aborted) throw error;
+            if (options.signal?.aborted) throw new Error("workflow aborted");
             log(`pipeline[${index}] failed: ${error instanceof Error ? error.message : String(error)}`);
             return null;
           }
@@ -464,7 +466,11 @@ export async function runWorkflow<T = unknown>(
 
   const wrapped = `(async () => {\n${body}\n})()`;
   try {
-    const result = await new vm.Script(wrapped, { filename: `${meta.name || "workflow"}.js` }).runInContext(context);
+    const scriptRun = Promise.resolve(
+      new vm.Script(wrapped, { filename: `${meta.name || "workflow"}.js` }).runInContext(context),
+    );
+    scriptRun.catch(() => undefined);
+    const result = await Promise.race([scriptRun, abortPromise(options.signal)]);
     const leaked = spawnedHandles.filter((handle) => !isTerminalAgentStatus(handle.status()));
     if (leaked.length > 0) {
       agentRunner.abortAll?.("Workflow returned with active spawned agents");
@@ -787,6 +793,14 @@ function retryDelayMs(retry: Required<AgentRetryOptions>, attempt: number): numb
   return retry.backoff === "exponential" ? retry.delayMs * 2 ** (attempt - 1) : retry.delayMs;
 }
 
+function abortPromise(signal: AbortSignal | undefined): Promise<never> {
+  if (!signal) return new Promise<never>(() => undefined);
+  if (signal.aborted) return Promise.reject(new Error("workflow aborted"));
+  return new Promise<never>((_resolve, reject) => {
+    signal.addEventListener("abort", () => reject(new Error("workflow aborted")), { once: true });
+  });
+}
+
 function createHardAbortHandler(
   agentRunner: Pick<WorkflowAgent, "run"> & Partial<Pick<WorkflowAgent, "abortAll" | "disposeAll">>,
   signal: AbortSignal | undefined,
@@ -930,6 +944,23 @@ async function persistMailboxTranscript(
 
 function isTerminalAgentStatus(status: string): boolean {
   return status === "completed" || status === "failed" || status === "aborted";
+}
+
+function rejectPromiseValue(value: unknown, name: string): void {
+  if (isPromiseLike(value))
+    throw new TypeError(`${name} is a Promise; await the upstream result before handing it off`);
+}
+
+function rejectAccidentalPromiseText(value: string, name: string): void {
+  if (value.includes("[object Promise]")) {
+    throw new TypeError(
+      `${name} contains [object Promise]; you probably forgot to await an upstream agent result before interpolation`,
+    );
+  }
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return !!value && typeof value === "object" && typeof (value as { then?: unknown }).then === "function";
 }
 
 function normalizeHandoffOptions(value: unknown): { inlineLimit: number } {

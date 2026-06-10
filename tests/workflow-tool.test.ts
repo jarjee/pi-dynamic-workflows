@@ -12,6 +12,8 @@ test("createWorkflowTool describes phases as optional and dynamic", () => {
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("Phase names may be conditional or built in a loop")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("file ownership")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("spawn()")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("transcript path")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("[object Promise]")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("validation gate")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("many subagents")));
 });

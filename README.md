@@ -167,9 +167,11 @@ const [contract, implementation] = await parallel([
 ])
 ```
 
+Always await all intended lanes before final synthesis. If a prompt or handoff contains `[object Promise]`, an upstream `agent()`/`spawn().result` was interpolated before it was awaited.
+
 Mailbox-enabled agents receive `mailbox_peers`, `mailbox_send`, and `mailbox_pause` tools plus an identity/protocol prompt. Messages are automatically injected into the receiver's next/resume turn and are framed as peer/supervisor communication, not system instructions. If any spawned agent is still running or paused when the workflow returns, the workflow fails with a leak report and cleans up active agents.
 
-When mailbox is used, the runtime writes a full JSONL transcript artifact and returns its path in workflow details.
+When mailbox is used, the runtime writes a full JSONL transcript artifact and returns its path in both the workflow completion text and workflow details for debugging.
 
 ### Subagent tool allowlists
 
