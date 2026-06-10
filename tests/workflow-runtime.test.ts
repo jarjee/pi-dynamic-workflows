@@ -32,6 +32,38 @@ return { id: worker.id, label: worker.label, status: worker.status(), value }
   assert.equal((result.result as any).value, "result:work");
 });
 
+test("runWorkflow injects mailbox identity and tools for mailbox-enabled spawned agents", async () => {
+  const calls: Array<{ instructions?: string; customToolNames: string[] }> = [];
+  const agentRunner = {
+    async run(
+      _prompt: string,
+      options: { instructions?: string; customTools?: Array<{ name: string }> },
+    ): Promise<string> {
+      calls.push({
+        instructions: options.instructions,
+        customToolNames: (options.customTools ?? []).map((tool) => tool.name),
+      });
+      return "ok";
+    },
+  };
+
+  await runWorkflow(
+    `export const meta = {
+  name: 'mailbox_identity',
+  description: 'Mailbox-enabled agent gets protocol'
+}
+
+const worker = spawn('work', { label: 'worker', mailbox: true })
+return await worker.result
+`,
+    { agent: agentRunner },
+  );
+
+  assert.match(calls[0].instructions ?? "", /<workflow_mailbox_identity>/);
+  assert.match(calls[0].instructions ?? "", /agent_1/);
+  assert.deepEqual(calls[0].customToolNames, ["mailbox_peers", "mailbox_send", "mailbox_pause"]);
+});
+
 test("runWorkflow forwards requested tool allowlists to subagents", async () => {
   const calls: Array<{ tools?: string[] }> = [];
   const agentRunner = {
