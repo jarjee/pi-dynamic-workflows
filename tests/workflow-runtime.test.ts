@@ -101,6 +101,34 @@ return { ok: true }
   });
 });
 
+test("runWorkflow supervisor mailbox send injects message into receiver", async () => {
+  let workerInstructions = "";
+  const agentRunner = {
+    async run(_prompt: string, options: { label?: string; instructions?: string }): Promise<string> {
+      if (options.label === "worker") workerInstructions = options.instructions ?? "";
+      return "ok";
+    },
+  };
+
+  await runWorkflow(
+    `export const meta = {
+  name: 'mailbox_supervisor_send',
+  description: 'Supervisor sends mailbox message'
+}
+
+const worker = spawn('worker', { label: 'worker', mailbox: true })
+await mailbox.send(worker.id, 'hello from supervisor')
+return await worker.result
+`,
+    { agent: agentRunner },
+  );
+
+  assert.match(workerInstructions, /<workflow_mailbox>/);
+  assert.match(workerInstructions, /from="supervisor"/);
+  assert.match(workerInstructions, /label="workflow supervisor"/);
+  assert.match(workerInstructions, /hello from supervisor/);
+});
+
 test("runWorkflow forwards requested tool allowlists to subagents", async () => {
   const calls: Array<{ tools?: string[] }> = [];
   const agentRunner = {
