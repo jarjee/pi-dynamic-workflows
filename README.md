@@ -4,7 +4,7 @@
 
 A Pi extension that adds a `workflow` tool. Instead of one assistant doing everything sequentially, the model writes a small JavaScript script that fans out the work across many isolated subagents, then synthesizes the results.
 
-Great for codebase audits, multi-perspective review, large refactors, and fan-out research.
+Great for codebase audits, multi-perspective review, large refactors, adversarial claim checking, repeatable quality gates, and fan-out research. Workflows are best when the task can be split into independent streams with clear scope, deliverables, and — for side-effectful work — non-overlapping file ownership.
 
 Inspired by Anthropic's [dynamic workflows in Claude Code](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code).
 
@@ -110,6 +110,12 @@ Workflow scripts are evaluated inside a Node `vm` sandbox. The following are int
 - spreads, computed keys, template interpolation, function calls inside `meta`
 
 This keeps `meta` parseable, runs reproducible, and the surface area small.
+
+### Workflow fit and composition
+
+Before using a workflow, gate whether the task has real independent streams of work. Good fits include broad audits, multi-perspective review, debugging with competing hypotheses, research across alternatives, migrations with separable file sets, and repeatable quality gates. Poor fits include small one-step tasks, mostly sequential work, tightly coupled edits, and tasks likely to need user input midway.
+
+For side-effectful implementation workflows, make each lane's file or directory ownership explicit and non-overlapping. If ownership overlaps, serialize those lanes or add dependencies rather than running them in parallel. Good subagent prompts include mission, concrete tasks, scope/out-of-scope, dependencies, quality standards, and expected deliverable shape.
 
 ### Runtime policy
 
