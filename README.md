@@ -115,7 +115,7 @@ This keeps `meta` parseable, runs reproducible, and the surface area small.
 
 ### Workflow fit and composition
 
-Before using a workflow, gate whether the task has real independent streams of work. Good fits include broad audits, multi-perspective review, debugging with competing hypotheses, research across alternatives, migrations with separable file sets, and repeatable quality gates. Poor fits include small one-step tasks, mostly sequential work, tightly coupled edits, and tasks likely to need user input midway.
+Before using a workflow, gate whether the task has real independent streams of work. Good fits include broad audits, many similar independent checks, multi-perspective review, debugging with competing hypotheses, research across alternatives, migrations with separable file sets, and repeatable quality gates. A good workflow may spawn many subagents when the work is genuinely fan-out; do not prematurely collapse useful independent lanes into a small fixed set. Poor fits include small one-step tasks, mostly sequential work, tightly coupled edits, and tasks likely to need user input midway.
 
 For side-effectful implementation workflows, make each lane's file or directory ownership explicit and non-overlapping. If ownership overlaps, serialize those lanes or add dependencies rather than running them in parallel. Good subagent prompts include mission, concrete tasks, scope/out-of-scope, dependencies, quality standards, and expected deliverable shape.
 
