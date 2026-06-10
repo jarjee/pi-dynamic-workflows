@@ -151,7 +151,38 @@ export async function runWorkflow<T = unknown>(
     if (options.signal?.aborted) throw new Error("workflow aborted");
   };
 
+  const mailboxAgents = new Map<
+    string,
+    { id: string; label: string; status: () => string; mailboxEnabled: boolean; peers: Set<string> }
+  >();
   let nextAgentId = 1;
+
+  const mailboxAgent = (id: string) => {
+    const agent = mailboxAgents.get(id);
+    if (!agent) throw new Error(`Unknown workflow mailbox agent: ${id}`);
+    return agent;
+  };
+
+  const mailboxPeerDetails = (id: string) => {
+    const agent = mailboxAgent(id);
+    return Array.from(agent.peers, (peerId) => {
+      const peer = mailboxAgent(peerId);
+      return { id: peer.id, label: peer.label, status: peer.status() };
+    });
+  };
+
+  const mailbox = {
+    allow(fromId: unknown, toId: unknown) {
+      const from = mailboxAgent(requireString(fromId, "mailbox allow from"));
+      const to = mailboxAgent(requireString(toId, "mailbox allow to"));
+      if (!from.mailboxEnabled || !to.mailboxEnabled) throw new Error("mailbox.allow requires mailbox-enabled agents");
+      from.peers.add(to.id);
+    },
+    connect(aId: unknown, bId: unknown) {
+      this.allow(aId, bId);
+      this.allow(bId, aId);
+    },
+  };
 
   const spawn = (prompt: unknown, agentOptions: unknown = {}) => {
     throwIfAborted();
@@ -163,6 +194,8 @@ export async function runWorkflow<T = unknown>(
     const label = normalizedOptions.label?.trim() || defaultAgentLabel(assignedPhase, nextAgentId - 1);
     const mailboxEnabled = Boolean(normalizedOptions.mailbox);
     let status: "starting" | "running" | "paused" | "completed" | "failed" | "aborted" = "starting";
+    mailboxAgents.set(id, { id, label, status: () => status, mailboxEnabled, peers: new Set() });
+    for (const peer of initialMailboxPeers(normalizedOptions.mailbox)) mailbox.allow(id, peer);
     const run = Promise.resolve().then(() =>
       limiter(async () => {
         status = "running";
@@ -189,7 +222,14 @@ export async function runWorkflow<T = unknown>(
                 thinkingLevel: normalizedOptions.thinkingLevel,
                 tools: normalizedOptions.tools ?? policy.defaultTools,
                 signal: attemptSignal.signal,
-                customTools: mailboxEnabled ? createMailboxTools(id, label, () => status) : undefined,
+                customTools: mailboxEnabled
+                  ? createMailboxTools(
+                      id,
+                      label,
+                      () => status,
+                      () => mailboxPeerDetails(id),
+                    )
+                  : undefined,
                 instructions: buildAgentInstructions(
                   assignedPhase,
                   normalizedOptions,
@@ -300,6 +340,7 @@ export async function runWorkflow<T = unknown>(
     parallel,
     pipeline,
     handoff,
+    mailbox,
     log,
     phase,
     args: options.args,
@@ -681,6 +722,10 @@ function createAttemptSignal(parent: AbortSignal | undefined, timeoutSeconds: nu
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function initialMailboxPeers(mailbox: AgentOptions["mailbox"]): string[] {
+  return typeof mailbox === "object" ? (mailbox.peers ?? []) : [];
+}
+
 function buildMailboxIdentityInstructions(id: string, label: string): string {
   return [
     "<workflow_mailbox_identity>",
@@ -696,7 +741,12 @@ function buildMailboxIdentityInstructions(id: string, label: string): string {
   ].join("\n");
 }
 
-function createMailboxTools(id: string, label: string, status: () => string) {
+function createMailboxTools(
+  id: string,
+  label: string,
+  status: () => string,
+  peers: () => Array<{ id: string; label: string; status: string }>,
+) {
   return [
     defineTool({
       name: "mailbox_peers",
@@ -706,7 +756,7 @@ function createMailboxTools(id: string, label: string, status: () => string) {
       async execute() {
         return {
           content: [{ type: "text", text: "Mailbox peers listed." }],
-          details: { self: { id, label, status: status() }, peers: [] },
+          details: { self: { id, label, status: status() }, peers: peers() },
         };
       },
     }),
