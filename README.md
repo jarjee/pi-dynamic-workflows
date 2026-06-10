@@ -119,6 +119,8 @@ Before using a workflow, gate whether the task has real independent streams of w
 
 For side-effectful implementation workflows, make each lane's file or directory ownership explicit and non-overlapping. If ownership overlaps, serialize those lanes or add dependencies rather than running them in parallel. Good subagent prompts include mission, concrete tasks, scope/out-of-scope, dependencies, quality standards, and expected deliverable shape.
 
+Side-effectful workflows should end with an explicit validation gate: run the formatter/linter/typecheck/tests that are appropriate for the project, repair failures, and only then report completion. Keep workflow progress and final summaries user-facing: describe concrete actions, evidence, failures, and next steps rather than scratchpad notes.
+
 ### Runtime policy
 
 The `workflow` tool accepts an optional host-enforced `policy` object:
