@@ -148,76 +148,94 @@ export async function runWorkflow<T = unknown>(
     if (options.signal?.aborted) throw new Error("workflow aborted");
   };
 
-  const agent = async (prompt: unknown, agentOptions: unknown = {}) => {
+  let nextAgentId = 1;
+
+  const spawn = (prompt: unknown, agentOptions: unknown = {}) => {
     throwIfAborted();
     if (budget.total !== null && budget.remaining() <= 0) throw new Error("workflow token budget exhausted");
     const taskPrompt = requireString(prompt, "agent prompt");
     const normalizedOptions = normalizeAgentOptions(agentOptions);
     const assignedPhase = normalizedOptions.phase ?? state.currentPhase;
-    const requestedLabel = normalizedOptions.label?.trim();
-    const run = limiter(async () => {
-      state.agentCount++;
-      const label = requestedLabel || defaultAgentLabel(assignedPhase, state.agentCount);
-      options.onAgentStart?.({ label, phase: assignedPhase, prompt: taskPrompt });
-      const roleInstructions = normalizedOptions.role
-        ? formatWorkflowRoleInstructions(
-            await resolveWorkflowRole(normalizedOptions.role, {
-              ...options.roles,
-              projectRoles: policy.projectRoles ?? options.roles?.projectRoles,
-            }),
-          )
-        : undefined;
-      try {
-        throwIfAborted();
-        const retry = normalizeRetryOptions(normalizedOptions.retry);
-        for (let attempt = 1; attempt <= retry.attempts; attempt++) {
-          const attemptSignal = createAttemptSignal(options.signal, normalizedOptions.timeoutSeconds);
-          try {
-            const result = await agentRunner.run(taskPrompt, {
-              label,
-              schema: normalizedOptions.schema,
-              model: normalizedOptions.model ?? modelForStream(normalizedOptions.stream, policy),
-              thinkingLevel: normalizedOptions.thinkingLevel,
-              tools: normalizedOptions.tools ?? policy.defaultTools,
-              signal: attemptSignal.signal,
-              instructions: buildAgentInstructions(assignedPhase, normalizedOptions, roleInstructions),
-            } as any);
-            attemptSignal.cleanup();
-            throwIfAborted();
-            state.spent += estimateTokens(result);
-            options.onAgentEnd?.({ label, phase: assignedPhase, result });
-            return result;
-          } catch (error) {
-            attemptSignal.cleanup();
-            if (options.signal?.aborted) throw error;
-            const message = error instanceof Error ? error.message : String(error);
-            const remaining = retry.attempts - attempt;
-            if (remaining > 0) {
-              log(`agent ${label} attempt ${attempt}/${retry.attempts} failed: ${message}`);
-              await sleep(retryDelayMs(retry, attempt));
-              continue;
+    const id = `agent_${nextAgentId++}`;
+    const label = normalizedOptions.label?.trim() || defaultAgentLabel(assignedPhase, nextAgentId - 1);
+    let status: "starting" | "running" | "paused" | "completed" | "failed" | "aborted" = "starting";
+    const run = Promise.resolve().then(() =>
+      limiter(async () => {
+        status = "running";
+        state.agentCount++;
+        options.onAgentStart?.({ label, phase: assignedPhase, prompt: taskPrompt });
+        const roleInstructions = normalizedOptions.role
+          ? formatWorkflowRoleInstructions(
+              await resolveWorkflowRole(normalizedOptions.role, {
+                ...options.roles,
+                projectRoles: policy.projectRoles ?? options.roles?.projectRoles,
+              }),
+            )
+          : undefined;
+        try {
+          throwIfAborted();
+          const retry = normalizeRetryOptions(normalizedOptions.retry);
+          for (let attempt = 1; attempt <= retry.attempts; attempt++) {
+            const attemptSignal = createAttemptSignal(options.signal, normalizedOptions.timeoutSeconds);
+            try {
+              const result = await agentRunner.run(taskPrompt, {
+                label,
+                schema: normalizedOptions.schema,
+                model: normalizedOptions.model ?? modelForStream(normalizedOptions.stream, policy),
+                thinkingLevel: normalizedOptions.thinkingLevel,
+                tools: normalizedOptions.tools ?? policy.defaultTools,
+                signal: attemptSignal.signal,
+                instructions: buildAgentInstructions(assignedPhase, normalizedOptions, roleInstructions),
+              } as any);
+              attemptSignal.cleanup();
+              throwIfAborted();
+              state.spent += estimateTokens(result);
+              status = result === null ? "failed" : "completed";
+              options.onAgentEnd?.({ label, phase: assignedPhase, result });
+              return result;
+            } catch (error) {
+              attemptSignal.cleanup();
+              if (options.signal?.aborted) {
+                status = "aborted";
+                throw error;
+              }
+              const message = error instanceof Error ? error.message : String(error);
+              const remaining = retry.attempts - attempt;
+              if (remaining > 0) {
+                log(`agent ${label} attempt ${attempt}/${retry.attempts} failed: ${message}`);
+                await sleep(retryDelayMs(retry, attempt));
+                continue;
+              }
+              status = "failed";
+              log(`agent ${label} failed: ${message}`);
+              options.onAgentEnd?.({ label, phase: assignedPhase, result: null });
+              return null;
             }
-            log(`agent ${label} failed: ${message}`);
-            options.onAgentEnd?.({ label, phase: assignedPhase, result: null });
-            return null;
           }
+          status = "failed";
+          options.onAgentEnd?.({ label, phase: assignedPhase, result: null });
+          return null;
+        } catch (error) {
+          if (options.signal?.aborted) {
+            status = "aborted";
+            throw error;
+          }
+          status = "failed";
+          log(`agent ${label} failed: ${error instanceof Error ? error.message : String(error)}`);
+          options.onAgentEnd?.({ label, phase: assignedPhase, result: null });
+          return null;
         }
-        options.onAgentEnd?.({ label, phase: assignedPhase, result: null });
-        return null;
-      } catch (error) {
-        if (options.signal?.aborted) throw error;
-        log(`agent ${label} failed: ${error instanceof Error ? error.message : String(error)}`);
-        options.onAgentEnd?.({ label, phase: assignedPhase, result: null });
-        return null;
-      }
-    });
+      }),
+    );
     pendingAgentRuns.add(run);
     run.then(
       () => pendingAgentRuns.delete(run),
       () => pendingAgentRuns.delete(run),
     );
-    return run;
+    return { id, label, result: run, status: () => status };
   };
+
+  const agent = async (prompt: unknown, agentOptions: unknown = {}) => await spawn(prompt, agentOptions).result;
 
   const parallel = async (thunks: Array<() => Promise<unknown>>) => {
     throwIfAborted();
@@ -268,6 +286,7 @@ export async function runWorkflow<T = unknown>(
 
   const context = vm.createContext({
     agent,
+    spawn,
     parallel,
     pipeline,
     handoff,

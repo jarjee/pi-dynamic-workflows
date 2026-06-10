@@ -12,6 +12,26 @@ const fakeAgent = {
   },
 };
 
+test("runWorkflow spawn returns a handle whose result completes", async () => {
+  const result = await runWorkflow(
+    `export const meta = {
+  name: 'spawn_handle',
+  description: 'Use spawn handle lifecycle'
+}
+
+const worker = spawn('work', { label: 'worker' })
+const value = await worker.result
+return { id: worker.id, label: worker.label, status: worker.status(), value }
+`,
+    { agent: fakeAgent },
+  );
+
+  assert.equal((result.result as any).id, "agent_1");
+  assert.equal((result.result as any).label, "worker");
+  assert.equal((result.result as any).status, "completed");
+  assert.equal((result.result as any).value, "result:work");
+});
+
 test("runWorkflow forwards requested tool allowlists to subagents", async () => {
   const calls: Array<{ tools?: string[] }> = [];
   const agentRunner = {
