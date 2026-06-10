@@ -151,6 +151,7 @@ export async function runWorkflow<T = unknown>(
     if (options.signal?.aborted) throw new Error("workflow aborted");
   };
 
+  const spawnedHandles: Array<{ id: string; label: string; status: () => string }> = [];
   const mailboxAgents = new Map<
     string,
     {
@@ -219,7 +220,7 @@ export async function runWorkflow<T = unknown>(
     },
   };
 
-  const spawn = (prompt: unknown, agentOptions: unknown = {}) => {
+  const spawnInternal = (prompt: unknown, agentOptions: unknown = {}, trackLeak: boolean) => {
     throwIfAborted();
     if (budget.total !== null && budget.remaining() <= 0) throw new Error("workflow token budget exhausted");
     const taskPrompt = requireString(prompt, "agent prompt");
@@ -323,10 +324,15 @@ export async function runWorkflow<T = unknown>(
       () => pendingAgentRuns.delete(run),
       () => pendingAgentRuns.delete(run),
     );
-    return { id, label, result: run, status: () => status };
+    const handle = { id, label, result: run, status: () => status };
+    if (trackLeak) spawnedHandles.push(handle);
+    return handle;
   };
 
-  const agent = async (prompt: unknown, agentOptions: unknown = {}) => await spawn(prompt, agentOptions).result;
+  const spawn = (prompt: unknown, agentOptions: unknown = {}) => spawnInternal(prompt, agentOptions, true);
+
+  const agent = async (prompt: unknown, agentOptions: unknown = {}) =>
+    await spawnInternal(prompt, agentOptions, false).result;
 
   const parallel = async (thunks: Array<() => Promise<unknown>>) => {
     throwIfAborted();
@@ -410,6 +416,16 @@ export async function runWorkflow<T = unknown>(
   const wrapped = `(async () => {\n${body}\n})()`;
   try {
     const result = await new vm.Script(wrapped, { filename: `${meta.name || "workflow"}.js` }).runInContext(context);
+    const leaked = spawnedHandles.filter((handle) => !isTerminalAgentStatus(handle.status()));
+    if (leaked.length > 0) {
+      agentRunner.abortAll?.("Workflow returned with active spawned agents");
+      agentRunner.disposeAll?.();
+      throw new Error(
+        `workflow returned while spawned agents were still active: ${leaked
+          .map((handle) => `${handle.id} ${handle.label} ${handle.status()}`)
+          .join(", ")}`,
+      );
+    }
     await Promise.allSettled([...pendingAgentRuns]);
     assertStructuredCloneable(result, "workflow result");
     return {
@@ -847,6 +863,10 @@ function createMailboxTools(
       },
     }),
   ];
+}
+
+function isTerminalAgentStatus(status: string): boolean {
+  return status === "completed" || status === "failed" || status === "aborted";
 }
 
 function normalizeHandoffOptions(value: unknown): { inlineLimit: number } {

@@ -32,6 +32,38 @@ return { id: worker.id, label: worker.label, status: worker.status(), value }
   assert.equal((result.result as any).value, "result:work");
 });
 
+test("runWorkflow rejects workflows that return with spawned agents still active", async () => {
+  let release!: () => void;
+  const agentRunner = {
+    async run(): Promise<string> {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return "late";
+    },
+    abortAll() {
+      release?.();
+    },
+    disposeAll() {},
+  };
+
+  await assert.rejects(
+    () =>
+      runWorkflow(
+        `export const meta = {
+  name: 'spawn_leak',
+  description: 'Return too early'
+}
+
+const worker = spawn('work', { label: 'worker' })
+return { workerId: worker.id }
+`,
+        { agent: agentRunner, hardAbortGraceMs: 0 },
+      ),
+    /workflow returned while spawned agents were still active.*agent_1.*worker/s,
+  );
+});
+
 test("runWorkflow injects mailbox identity and tools for mailbox-enabled spawned agents", async () => {
   const calls: Array<{ instructions?: string; customToolNames: string[] }> = [];
   const agentRunner = {
