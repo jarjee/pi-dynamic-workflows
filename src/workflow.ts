@@ -185,6 +185,21 @@ export async function runWorkflow<T = unknown>(
     return buildMailboxDeliveryInstructions(messages);
   };
 
+  const sendMailboxMessage = (from: string, fromLabel: string, toId: string, body: string) => {
+    const to = mailboxAgent(toId);
+    if (!to.mailboxEnabled) throw new Error("mailbox_send requires a mailbox-enabled receiver");
+    const before = to.status();
+    to.pendingMessages.push({ from, fromLabel, body });
+    return {
+      ok: true,
+      from,
+      to: to.id,
+      receiverStatusBefore: before,
+      receiverStatusAfter: to.status(),
+      delivery: before === "paused" ? "woke_receiver" : "queued_for_next_turn",
+    };
+  };
+
   const mailbox = {
     allow(fromId: unknown, toId: unknown) {
       const from = mailboxAgent(requireString(fromId, "mailbox allow from"));
@@ -200,16 +215,7 @@ export async function runWorkflow<T = unknown>(
       const to = mailboxAgent(requireString(toId, "mailbox send to"));
       if (!to.mailboxEnabled) throw new Error("mailbox.send requires a mailbox-enabled receiver");
       const body = requireString(message, "mailbox message");
-      const before = to.status();
-      to.pendingMessages.push({ from: "supervisor", fromLabel: "workflow supervisor", body });
-      return {
-        ok: true,
-        from: "supervisor",
-        to: to.id,
-        receiverStatusBefore: before,
-        receiverStatusAfter: to.status(),
-        delivery: before === "paused" ? "woke_receiver" : "queued_for_next_turn",
-      };
+      return sendMailboxMessage("supervisor", "workflow supervisor", to.id, body);
     },
   };
 
@@ -257,6 +263,11 @@ export async function runWorkflow<T = unknown>(
                       label,
                       () => status,
                       () => mailboxPeerDetails(id),
+                      (to, message) => {
+                        const agent = mailboxAgent(id);
+                        if (!agent.peers.has(to)) throw new Error(`Mailbox peer not allowed: ${to}`);
+                        return sendMailboxMessage(id, label, to, message);
+                      },
                     )
                   : undefined,
                 instructions: buildAgentInstructions(
@@ -789,6 +800,7 @@ function createMailboxTools(
   label: string,
   status: () => string,
   peers: () => Array<{ id: string; label: string; status: string }>,
+  send: (to: string, message: string) => unknown,
 ) {
   return [
     defineTool({
@@ -812,9 +824,10 @@ function createMailboxTools(
         message: Type.String(),
       }),
       async execute(_toolCallId, params) {
+        const details = send(params.to, params.message);
         return {
-          content: [{ type: "text", text: "Mailbox sending is not connected yet." }],
-          details: { ok: false, error: "mailbox_not_connected", from: id, to: params.to },
+          content: [{ type: "text", text: "Mailbox message sent." }],
+          details,
         };
       },
     }),
