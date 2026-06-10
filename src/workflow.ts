@@ -243,7 +243,7 @@ export async function runWorkflow<T = unknown>(
     const mailboxEnabled = Boolean(normalizedOptions.mailbox);
     let status: "starting" | "running" | "paused" | "completed" | "failed" | "aborted" = "starting";
     let pauseWait: Promise<void> | undefined;
-    const pauseAgent = () => {
+    const pauseAgent = (reason: string | undefined, timeoutSeconds: number | undefined) => {
       const record = mailboxAgent(id);
       if (record.pendingMessages.length > 0) {
         pauseWait = Promise.resolve();
@@ -251,7 +251,22 @@ export async function runWorkflow<T = unknown>(
       }
       status = "paused";
       pauseWait = new Promise<void>((resolve) => {
-        record.resumePaused = resolve;
+        const timeout = setTimeout(
+          () => {
+            record.pendingMessages.push({
+              from: "supervisor",
+              fromLabel: "workflow supervisor",
+              body: `Your mailbox pause timed out. Pause reason: ${reason ?? "(none provided)"}`,
+            });
+            record.resumePaused = undefined;
+            resolve();
+          },
+          (timeoutSeconds ?? policy.mailboxPauseTimeoutSeconds ?? 1800) * 1000,
+        );
+        record.resumePaused = () => {
+          clearTimeout(timeout);
+          resolve();
+        };
       });
     };
     mailboxAgents.set(id, { id, label, status: () => status, mailboxEnabled, peers: new Set(), pendingMessages: [] });
@@ -852,7 +867,7 @@ function createMailboxTools(
   status: () => string,
   peers: () => Array<{ id: string; label: string; status: string }>,
   send: (to: string, message: string) => unknown,
-  pause: () => void,
+  pause: (reason: string | undefined, timeoutSeconds: number | undefined) => void,
 ) {
   return [
     defineTool({
@@ -892,7 +907,7 @@ function createMailboxTools(
         timeoutSeconds: Type.Optional(Type.Number()),
       }),
       async execute(_toolCallId, params) {
-        pause();
+        pause(params.reason, params.timeoutSeconds);
         return {
           content: [{ type: "text", text: "Agent paused for mailbox message." }],
           details: { ok: true, agentId: id, reason: params.reason },

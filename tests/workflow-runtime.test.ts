@@ -232,6 +232,47 @@ return { value, status: worker.status() }
   assert.match(resumedInstructions, /resume now/);
 });
 
+test("runWorkflow mailbox pause timeout resumes agent", async () => {
+  let calls = 0;
+  let resumedInstructions = "";
+  const agentRunner = {
+    async run(
+      _prompt: string,
+      options: {
+        instructions?: string;
+        customTools?: Array<{ name: string; execute: (...args: any[]) => Promise<any> }>;
+      },
+    ): Promise<string> {
+      calls++;
+      if (calls === 1) {
+        const pauseTool = options.customTools?.find((tool) => tool.name === "mailbox_pause");
+        await pauseTool?.execute("call", { reason: "timeout please" });
+        return "paused turn";
+      }
+      resumedInstructions = options.instructions ?? "";
+      return "timeout resumed";
+    },
+  };
+
+  const result = await runWorkflow(
+    `export const meta = {
+  name: 'mailbox_pause_timeout',
+  description: 'Pause timeout wakes agent'
+}
+
+const worker = spawn('worker', { label: 'worker', mailbox: true })
+const value = await worker.result
+return { value, status: worker.status() }
+`,
+    { agent: agentRunner, policy: { mailboxPauseTimeoutSeconds: 0.001 } },
+  );
+
+  assert.equal(calls, 2);
+  assert.equal((result.result as any).value, "timeout resumed");
+  assert.match(resumedInstructions, /pause timed out/i);
+  assert.match(resumedInstructions, /timeout please/);
+});
+
 test("runWorkflow agent mailbox_send injects message into allowed peer", async () => {
   let workerInstructions = "";
   const agentRunner = {
