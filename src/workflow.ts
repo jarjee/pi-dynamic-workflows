@@ -161,6 +161,7 @@ export async function runWorkflow<T = unknown>(
       mailboxEnabled: boolean;
       peers: Set<string>;
       pendingMessages: Array<{ from: string; fromLabel: string; body: string }>;
+      resumePaused?: () => void;
     }
   >();
   let nextAgentId = 1;
@@ -191,6 +192,8 @@ export async function runWorkflow<T = unknown>(
     if (!to.mailboxEnabled) throw new Error("mailbox_send requires a mailbox-enabled receiver");
     const before = to.status();
     to.pendingMessages.push({ from, fromLabel, body });
+    to.resumePaused?.();
+    to.resumePaused = undefined;
     return {
       ok: true,
       from,
@@ -230,6 +233,18 @@ export async function runWorkflow<T = unknown>(
     const label = normalizedOptions.label?.trim() || defaultAgentLabel(assignedPhase, nextAgentId - 1);
     const mailboxEnabled = Boolean(normalizedOptions.mailbox);
     let status: "starting" | "running" | "paused" | "completed" | "failed" | "aborted" = "starting";
+    let pauseWait: Promise<void> | undefined;
+    const pauseAgent = () => {
+      const record = mailboxAgent(id);
+      if (record.pendingMessages.length > 0) {
+        pauseWait = Promise.resolve();
+        return;
+      }
+      status = "paused";
+      pauseWait = new Promise<void>((resolve) => {
+        record.resumePaused = resolve;
+      });
+    };
     mailboxAgents.set(id, { id, label, status: () => status, mailboxEnabled, peers: new Set(), pendingMessages: [] });
     for (const peer of initialMailboxPeers(normalizedOptions.mailbox)) mailbox.allow(id, peer);
     const run = Promise.resolve().then(() =>
@@ -269,6 +284,7 @@ export async function runWorkflow<T = unknown>(
                         if (!agent.peers.has(to)) throw new Error(`Mailbox peer not allowed: ${to}`);
                         return sendMailboxMessage(id, label, to, message);
                       },
+                      pauseAgent,
                     )
                   : undefined,
                 instructions: buildAgentInstructions(
@@ -282,6 +298,14 @@ export async function runWorkflow<T = unknown>(
               attemptSignal.cleanup();
               throwIfAborted();
               state.spent += estimateTokens(result);
+              if (pauseWait) {
+                const wait = pauseWait;
+                pauseWait = undefined;
+                await wait;
+                status = "running";
+                attempt--;
+                continue;
+              }
               status = result === null ? "failed" : "completed";
               options.onAgentEnd?.({ label, phase: assignedPhase, result });
               return result;
@@ -817,6 +841,7 @@ function createMailboxTools(
   status: () => string,
   peers: () => Array<{ id: string; label: string; status: string }>,
   send: (to: string, message: string) => unknown,
+  pause: () => void,
 ) {
   return [
     defineTool({
@@ -856,9 +881,10 @@ function createMailboxTools(
         timeoutSeconds: Type.Optional(Type.Number()),
       }),
       async execute(_toolCallId, params) {
+        pause();
         return {
-          content: [{ type: "text", text: "Mailbox pause is not connected yet." }],
-          details: { ok: false, error: "mailbox_pause_not_connected", agentId: id, reason: params.reason },
+          content: [{ type: "text", text: "Agent paused for mailbox message." }],
+          details: { ok: true, agentId: id, reason: params.reason },
         };
       },
     }),
