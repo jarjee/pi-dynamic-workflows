@@ -13,6 +13,7 @@ test("createWorkflowTool describes phases as optional and dynamic", () => {
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("file ownership")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("spawn()")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("validation gate")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("many subagents")));
 });
 
 test("createWorkflowTool accepts runtime policy arguments", () => {
