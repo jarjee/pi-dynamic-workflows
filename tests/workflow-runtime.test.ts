@@ -161,6 +161,49 @@ return await worker.result
   assert.match(workerInstructions, /hello from supervisor/);
 });
 
+test("runWorkflow mailbox_pause keeps result pending until supervisor message resumes agent", async () => {
+  let calls = 0;
+  let resumedInstructions = "";
+  const agentRunner = {
+    async run(
+      _prompt: string,
+      options: {
+        instructions?: string;
+        customTools?: Array<{ name: string; execute: (...args: any[]) => Promise<any> }>;
+      },
+    ): Promise<string> {
+      calls++;
+      if (calls === 1) {
+        const pauseTool = options.customTools?.find((tool) => tool.name === "mailbox_pause");
+        await pauseTool?.execute("call", { reason: "waiting for supervisor" });
+        return "paused turn";
+      }
+      resumedInstructions = options.instructions ?? "";
+      return "resumed result";
+    },
+  };
+
+  const result = await runWorkflow(
+    `export const meta = {
+  name: 'mailbox_pause_resume',
+  description: 'Pause and resume mailbox agent'
+}
+
+const worker = spawn('worker', { label: 'worker', mailbox: true })
+await Promise.resolve()
+await mailbox.send(worker.id, 'resume now')
+const value = await worker.result
+return { value, status: worker.status() }
+`,
+    { agent: agentRunner },
+  );
+
+  assert.equal(calls, 2);
+  assert.equal((result.result as any).value, "resumed result");
+  assert.equal((result.result as any).status, "completed");
+  assert.match(resumedInstructions, /resume now/);
+});
+
 test("runWorkflow agent mailbox_send injects message into allowed peer", async () => {
   let workerInstructions = "";
   const agentRunner = {
