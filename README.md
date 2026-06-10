@@ -109,6 +109,7 @@ Workflow scripts are evaluated inside a Node `vm` sandbox. The following are int
 - `Date.now()`, `new Date()`
 - `Math.random()`
 - `require`, `import`, `fs`, network APIs
+- direct Pi file/tool helpers such as `read()`, `grep()`, `find()`, `ls()`, or `bash()` — delegate file inspection to subagents with explicit `tools`, or pass file paths into subagent prompts
 - spreads, computed keys, template interpolation, function calls inside `meta`
 
 This keeps `meta` parseable, runs reproducible, and the surface area small.
@@ -266,7 +267,7 @@ const result = await agent('Run a flaky inspection.', {
 
 ### Structured subagent output
 
-Pass a JSON Schema via `opts.schema` and the subagent will return a validated object:
+Pass a JSON Schema via `opts.schema` and the subagent will return a validated object. Schema-constrained agents must call `structured_output`; because an LLM may still fail to do so, important structured lanes should use `retry`, and downstream synthesis must check for `null` before using the result:
 
 ```js
 const finding = await agent('Find security-sensitive files.', {
