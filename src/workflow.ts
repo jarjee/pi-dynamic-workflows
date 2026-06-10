@@ -45,6 +45,7 @@ export interface WorkflowRunResult<T = unknown> {
   phases: string[];
   agentCount: number;
   durationMs: number;
+  mailbox?: { transcriptPath: string; eventCount: number };
 }
 
 export interface AgentRetryOptions {
@@ -152,6 +153,11 @@ export async function runWorkflow<T = unknown>(
   };
 
   const spawnedHandles: Array<{ id: string; label: string; status: () => string }> = [];
+  const mailboxEvents: Array<Record<string, unknown>> = [];
+  let mailboxSeq = 0;
+  const recordMailboxEvent = (event: Record<string, unknown>) => {
+    mailboxEvents.push({ seq: ++mailboxSeq, ...event });
+  };
   const mailboxAgents = new Map<
     string,
     {
@@ -194,7 +200,7 @@ export async function runWorkflow<T = unknown>(
     to.pendingMessages.push({ from, fromLabel, body });
     to.resumePaused?.();
     to.resumePaused = undefined;
-    return {
+    const details = {
       ok: true,
       from,
       to: to.id,
@@ -202,6 +208,8 @@ export async function runWorkflow<T = unknown>(
       receiverStatusAfter: to.status(),
       delivery: before === "paused" ? "woke_receiver" : "queued_for_next_turn",
     };
+    recordMailboxEvent({ type: "message_sent", ...details, body });
+    return details;
   };
 
   const mailbox = {
@@ -210,6 +218,7 @@ export async function runWorkflow<T = unknown>(
       const to = mailboxAgent(requireString(toId, "mailbox allow to"));
       if (!from.mailboxEnabled || !to.mailboxEnabled) throw new Error("mailbox.allow requires mailbox-enabled agents");
       from.peers.add(to.id);
+      recordMailboxEvent({ type: "channel_allowed", from: from.id, to: to.id });
     },
     connect(aId: unknown, bId: unknown) {
       this.allow(aId, bId);
@@ -246,6 +255,7 @@ export async function runWorkflow<T = unknown>(
       });
     };
     mailboxAgents.set(id, { id, label, status: () => status, mailboxEnabled, peers: new Set(), pendingMessages: [] });
+    if (mailboxEnabled) recordMailboxEvent({ type: "agent_registered", agentId: id, label });
     for (const peer of initialMailboxPeers(normalizedOptions.mailbox)) mailbox.allow(id, peer);
     const run = Promise.resolve().then(() =>
       limiter(async () => {
@@ -459,6 +469,7 @@ export async function runWorkflow<T = unknown>(
       phases: state.phases,
       agentCount: state.agentCount,
       durationMs: Date.now() - started,
+      mailbox: await persistMailboxTranscript(mailboxEvents),
     };
   } finally {
     hardAbort.cleanup();
@@ -889,6 +900,17 @@ function createMailboxTools(
       },
     }),
   ];
+}
+
+async function persistMailboxTranscript(
+  events: Array<Record<string, unknown>>,
+): Promise<{ transcriptPath: string; eventCount: number } | undefined> {
+  if (events.length === 0) return undefined;
+  const dir = await mkdtemp(join(tmpdir(), "pi-workflow-mailbox-"));
+  const transcriptPath = join(dir, "transcript.jsonl");
+  const content = `${events.map((event) => JSON.stringify(event)).join("\n")}\n`;
+  await writeFile(transcriptPath, content, { encoding: "utf8", mode: 0o600 });
+  return { transcriptPath, eventCount: events.length };
 }
 
 function isTerminalAgentStatus(status: string): boolean {

@@ -133,6 +133,34 @@ return { ok: true }
   });
 });
 
+test("runWorkflow writes mailbox transcript artifact when mailbox is used", async () => {
+  const agentRunner = {
+    async run(): Promise<string> {
+      return "ok";
+    },
+  };
+
+  const result = await runWorkflow(
+    `export const meta = {
+  name: 'mailbox_transcript',
+  description: 'Write mailbox transcript'
+}
+
+const worker = spawn('worker', { label: 'worker', mailbox: true })
+await mailbox.send(worker.id, 'transcript body')
+return await worker.result
+`,
+    { agent: agentRunner },
+  );
+
+  const transcriptPath = result.mailbox?.transcriptPath;
+  assert.ok(transcriptPath);
+  const transcript = await import("node:fs/promises").then((fs) => fs.readFile(transcriptPath, "utf8"));
+  assert.match(transcript, /"type":"agent_registered"/);
+  assert.match(transcript, /"from":"supervisor"/);
+  assert.match(transcript, /transcript body/);
+});
+
 test("runWorkflow supervisor mailbox send injects message into receiver", async () => {
   let workerInstructions = "";
   const agentRunner = {
