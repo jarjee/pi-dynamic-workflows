@@ -89,10 +89,12 @@ This declares `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `cwd`, an
 
 | Global | Description |
 | --- | --- |
-| `agent(prompt, opts)` | Spawn an isolated subagent. Returns its final text or, with `opts.schema`, a validated object. `opts.tools` can allowlist built-in coding tools. |
+| `spawn(prompt, opts)` | Start an isolated subagent and return a handle `{ id, label, status(), result }` immediately. Use for mailbox communication and status tracking. |
+| `agent(prompt, opts)` | Spawn an isolated subagent and await its result. Returns final text or, with `opts.schema`, a validated object. `opts.tools` can allowlist built-in coding tools. |
 | `parallel(thunks)` | Run an array of `() => agent(...)` thunks concurrently. Results are returned in input order. |
 | `pipeline(items, ...stages)` | Run each item through sequential stages while items fan out. Each stage receives `(prev, original, index)`. |
 | `handoff(value, opts)` | Return small values inline, or write large values to a mode-0600 temp artifact and return read instructions. |
+| `mailbox` | Supervisor mailbox API for spawned communicating agents: `allow`, `connect`, and `send`. |
 | `phase(title)` | Mark the current phase. Used for grouping in the live progress view. |
 | `log(message)` | Append a workflow-level log line. |
 | `args` | Optional JSON value passed in via the tool's `args` parameter. |
@@ -138,6 +140,34 @@ The `workflow` tool accepts an optional host-enforced `policy` object:
 ```
 
 Workflow scripts can read the frozen `policy` global, but enforcement happens in the runtime. Script-level requests such as `agent(..., { tools })` can narrow or request capabilities; the host policy controls defaults and trust gates.
+
+### Communicating workflow agents
+
+Use `spawn()` instead of `agent()` when the workflow needs handles, status, or directed mailbox communication:
+
+```js
+const architect = spawn('Define the API contract.', {
+  label: 'architect',
+  mailbox: true,
+})
+
+const worker = spawn('Implement once the contract is ready.', {
+  label: 'worker',
+  mailbox: true,
+})
+
+mailbox.connect(architect.id, worker.id)
+await mailbox.send(worker.id, 'Wait for the architect contract before editing.')
+
+const [contract, implementation] = await parallel([
+  () => architect.result,
+  () => worker.result,
+])
+```
+
+Mailbox-enabled agents receive `mailbox_peers`, `mailbox_send`, and `mailbox_pause` tools plus an identity/protocol prompt. Messages are automatically injected into the receiver's next/resume turn and are framed as peer/supervisor communication, not system instructions. If any spawned agent is still running or paused when the workflow returns, the workflow fails with a leak report and cleans up active agents.
+
+When mailbox is used, the runtime writes a full JSONL transcript artifact and returns its path in workflow details.
 
 ### Subagent tool allowlists
 

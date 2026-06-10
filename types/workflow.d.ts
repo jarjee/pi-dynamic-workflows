@@ -58,6 +58,8 @@ declare global {
     retry?: WorkflowAgentRetryOptions;
     /** Source-qualified reusable role prompt, e.g. package:reviewer. */
     role?: `package:${string}` | `user:${string}` | `project:${string}`;
+    /** Enable directed mailbox communication tools for this spawned agent. */
+    mailbox?: boolean | { peers?: string[] };
     /** Reserved for future explicit extension tool grants; currently unsupported and fails closed. */
     extensionTools?: never;
     /** Reserved for future caller skill grants; currently unsupported and fails closed. */
@@ -88,16 +90,35 @@ declare global {
     remaining(): number;
   }
 
+  type WorkflowAgentStatus = "starting" | "running" | "paused" | "completed" | "failed" | "aborted";
+
+  interface WorkflowAgentHandle<T = unknown> {
+    id: string;
+    label: string;
+    result: Promise<T | null>;
+    status(): WorkflowAgentStatus;
+  }
+
   interface WorkflowPolicy {
     defaultTools?: string[];
     maxConcurrency?: number;
     hardAbortGraceMs?: number;
     projectRoles?: "deny" | "allow";
     modelsByStream?: Partial<Record<WorkflowStream, string>>;
+    mailboxPauseTimeoutSeconds?: number;
   }
 
-  /** Spawn a subagent. Returns final text unless a structured-output schema is used with an explicit generic. */
+  /** Spawn a subagent and return a handle immediately. Use this for mailbox communication or status tracking. */
+  function spawn<T = string>(prompt: string, options?: WorkflowAgentOptions): WorkflowAgentHandle<T>;
+
+  /** Spawn a subagent and await its result. Returns final text unless a structured-output schema is used with an explicit generic. */
   function agent<T = string>(prompt: string, options?: WorkflowAgentOptions): Promise<T>;
+
+  const mailbox: {
+    allow(fromId: string, toId: string): void;
+    connect(aId: string, bId: string): void;
+    send(toId: string, message: string): Promise<unknown>;
+  };
 
   /** Run independent async tasks concurrently. Pass functions, not already-created promises. */
   function parallel<T>(thunks: Array<() => Promise<T>>): Promise<T[]>;

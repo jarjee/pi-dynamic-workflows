@@ -29,6 +29,14 @@ Transferable team-composition rules apply to workflows: gate whether the work ha
 
 Useful archetypes include implementation lanes split by layer or module, review lanes split by perspective, debugging lanes split by hypothesis, research lanes split by alternative, and migration lanes split by file set with a validator lane.
 
+### Communicating workflow agents
+
+`spawn(prompt, opts)` starts a subagent and returns a handle with `id`, `label`, `status()`, and `result`. `agent(prompt, opts)` remains sugar for awaiting a spawned result. Use `spawn()` when the workflow needs to wire directed mailbox channels or inspect status.
+
+Mailbox-enabled agents receive `mailbox_peers`, `mailbox_send`, and `mailbox_pause`. The workflow supervisor can configure channels with `mailbox.allow(from, to)` and `mailbox.connect(a, b)`, and can send messages with `mailbox.send(to, message)`. Messages are injected into the receiver's next/resume turn with sender id and label, and are framed as peer/supervisor input rather than system instructions.
+
+Paused agents keep their handle result pending. Mailbox sends or pause timeouts resume them. Returning from a workflow while spawned agents are still running or paused fails with a leak report and cleans up active sessions. Mailbox runs write a full JSONL transcript artifact for debugging.
+
 ### Runtime policy
 
 Hosts can pass `policy` to `runWorkflow(...)` or the `workflow` tool. The normalized policy controls default tools, maximum concurrency, hard-abort grace, and project-role allowance. The workflow script can inspect the frozen `policy` global, but runtime enforcement does not trust script-authored values.
