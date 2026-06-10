@@ -168,7 +168,7 @@ const [contract, implementation] = await parallel([
 ])
 ```
 
-Always await all intended lanes before final synthesis. If a prompt or handoff contains `[object Promise]`, an upstream `agent()`/`spawn().result` was interpolated before it was awaited.
+Always await all intended lanes and all `handoff(...)` calls before final synthesis. If a prompt contains `[object Promise]`, an upstream `agent()`/`spawn().result` or `handoff(...)` promise was interpolated before it was awaited.
 
 Mailbox-enabled agents receive `mailbox_peers`, `mailbox_send`, and `mailbox_pause` tools plus an identity/protocol prompt. Messages are automatically injected into the receiver's next/resume turn and are framed as peer/supervisor communication, not system instructions. If any spawned agent is still running or paused when the workflow returns, the workflow fails with a leak report and cleans up active agents.
 
@@ -210,7 +210,7 @@ Extension tool grants and caller skill inheritance are intentionally not ambient
 
 ### Large handoff artifacts
 
-Use `handoff(value, { inlineLimit })` when passing potentially large upstream results into later prompts. Small values are returned unchanged; larger values are written to a temporary mode-0600 file and replaced with instructions containing the file path.
+Use `await handoff(value, { inlineLimit })` when passing potentially large upstream results into later prompts. `handoff` is async: always await it before interpolation. Small values are returned unchanged; larger values are written to a temporary mode-0600 file and replaced with instructions containing the file path.
 
 ```js
 const map = await agent('Map the repository.', { label: 'repo map' })
