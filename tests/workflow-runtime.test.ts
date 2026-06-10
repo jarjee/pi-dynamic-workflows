@@ -64,6 +64,43 @@ return await worker.result
   assert.deepEqual(calls[0].customToolNames, ["mailbox_peers", "mailbox_send", "mailbox_pause"]);
 });
 
+test("runWorkflow mailbox connect updates peer visibility", async () => {
+  let architectPeers: unknown;
+  const agentRunner = {
+    async run(
+      _prompt: string,
+      options: { label?: string; customTools?: Array<{ name: string; execute: (...args: any[]) => Promise<any> }> },
+    ): Promise<string> {
+      if (options.label === "architect") {
+        const peersTool = options.customTools?.find((tool) => tool.name === "mailbox_peers");
+        architectPeers = (await peersTool?.execute("call", {}))?.details;
+      }
+      return "ok";
+    },
+  };
+
+  await runWorkflow(
+    `export const meta = {
+  name: 'mailbox_connect',
+  description: 'Connect mailbox peers'
+}
+
+const architect = spawn('architect', { label: 'architect', mailbox: true })
+const worker = spawn('worker', { label: 'worker', mailbox: true })
+mailbox.connect(architect.id, worker.id)
+await architect.result
+await worker.result
+return { ok: true }
+`,
+    { agent: agentRunner },
+  );
+
+  assert.deepEqual(architectPeers, {
+    self: { id: "agent_1", label: "architect", status: "running" },
+    peers: [{ id: "agent_2", label: "worker", status: "starting" }],
+  });
+});
+
 test("runWorkflow forwards requested tool allowlists to subagents", async () => {
   const calls: Array<{ tools?: string[] }> = [];
   const agentRunner = {
