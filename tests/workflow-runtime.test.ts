@@ -129,6 +129,47 @@ return await worker.result
   assert.match(workerInstructions, /hello from supervisor/);
 });
 
+test("runWorkflow agent mailbox_send injects message into allowed peer", async () => {
+  let workerInstructions = "";
+  const agentRunner = {
+    async run(
+      _prompt: string,
+      options: {
+        label?: string;
+        instructions?: string;
+        customTools?: Array<{ name: string; execute: (...args: any[]) => Promise<any> }>;
+      },
+    ): Promise<string> {
+      if (options.label === "architect") {
+        const sendTool = options.customTools?.find((tool) => tool.name === "mailbox_send");
+        await sendTool?.execute("call", { to: "agent_2", message: "contract ready" });
+      }
+      if (options.label === "worker") workerInstructions = options.instructions ?? "";
+      return "ok";
+    },
+  };
+
+  await runWorkflow(
+    `export const meta = {
+  name: 'mailbox_agent_send',
+  description: 'Agent sends mailbox message'
+}
+
+const architect = spawn('architect', { label: 'architect', mailbox: true })
+const worker = spawn('worker', { label: 'worker', mailbox: true })
+mailbox.connect(architect.id, worker.id)
+await architect.result
+await worker.result
+return { ok: true }
+`,
+    { agent: agentRunner, policy: { maxConcurrency: 1 } },
+  );
+
+  assert.match(workerInstructions, /from="agent_1"/);
+  assert.match(workerInstructions, /label="architect"/);
+  assert.match(workerInstructions, /contract ready/);
+});
+
 test("runWorkflow forwards requested tool allowlists to subagents", async () => {
   const calls: Array<{ tools?: string[] }> = [];
   const agentRunner = {
