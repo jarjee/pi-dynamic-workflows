@@ -8,6 +8,7 @@ export interface WorkflowPolicy {
   hardAbortGraceMs?: number;
   projectRoles?: ProjectRolePolicy;
   modelsByStream?: Partial<Record<WorkflowStream, string>>;
+  mailboxPauseTimeoutSeconds?: number;
 }
 
 export function normalizeWorkflowPolicy(value: unknown): WorkflowPolicy {
@@ -20,6 +21,10 @@ export function normalizeWorkflowPolicy(value: unknown): WorkflowPolicy {
     hardAbortGraceMs: optionalNonNegativeNumber(policy.hardAbortGraceMs, "policy.hardAbortGraceMs"),
     projectRoles: optionalProjectRolePolicy(policy.projectRoles),
     modelsByStream: optionalModelsByStream(policy.modelsByStream),
+    mailboxPauseTimeoutSeconds: optionalNonNegativeNumber(
+      policy.mailboxPauseTimeoutSeconds,
+      "policy.mailboxPauseTimeoutSeconds",
+    ),
   };
 }
 

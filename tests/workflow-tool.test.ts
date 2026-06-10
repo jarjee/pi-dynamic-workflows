@@ -32,5 +32,6 @@ test("createWorkflowTool accepts runtime policy arguments", () => {
     hardAbortGraceMs: 0,
     projectRoles: "allow",
     modelsByStream: { light: "provider/light-model" },
+    mailboxPauseTimeoutSeconds: undefined,
   });
 });

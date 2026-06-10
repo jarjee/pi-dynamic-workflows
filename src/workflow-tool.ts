@@ -18,6 +18,7 @@ const workflowPolicySchema = Type.Optional(
     maxConcurrency: Type.Optional(Type.Integer({ minimum: 1 })),
     hardAbortGraceMs: Type.Optional(Type.Number({ minimum: 0 })),
     projectRoles: Type.Optional(Type.Union([Type.Literal("deny"), Type.Literal("allow")])),
+    mailboxPauseTimeoutSeconds: Type.Optional(Type.Number({ minimum: 0 })),
     modelsByStream: Type.Optional(
       Type.Object({
         light: Type.Optional(Type.String()),
