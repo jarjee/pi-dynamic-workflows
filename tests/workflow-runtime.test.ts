@@ -314,6 +314,42 @@ return { ok: true }
   assert.match(workerInstructions, /contract ready/);
 });
 
+test("runWorkflow rejects prompts that interpolate unawaited promises", async () => {
+  await assert.rejects(
+    () =>
+      runWorkflow(
+        `export const meta = {
+  name: 'promise_prompt',
+  description: 'Accidentally interpolate a promise'
+}
+
+const lane = agent('lane', { label: 'lane' })
+return await agent('Synthesize this: ' + lane, { label: 'synthesis' })
+`,
+        { agent: fakeAgent },
+      ),
+    /agent prompt contains \[object Promise\].*forgot to await/i,
+  );
+});
+
+test("runWorkflow rejects handoff values that are unresolved promises", async () => {
+  await assert.rejects(
+    () =>
+      runWorkflow(
+        `export const meta = {
+  name: 'promise_handoff',
+  description: 'Accidentally hand off a promise'
+}
+
+const lane = agent('lane', { label: 'lane' })
+return await handoff(lane)
+`,
+        { agent: fakeAgent },
+      ),
+    /handoff value is a Promise.*await the upstream result/i,
+  );
+});
+
 test("runWorkflow forwards requested tool allowlists to subagents", async () => {
   const calls: Array<{ tools?: string[] }> = [];
   const agentRunner = {
@@ -653,7 +689,7 @@ return await agent('stuck', { label: 'stuck' })
 `,
         { agent: agentRunner, signal: controller.signal, hardAbortGraceMs: 0 },
       ),
-    /child aborted/,
+    /workflow aborted/,
   );
 
   assert.equal(abortAllCalls, 1);

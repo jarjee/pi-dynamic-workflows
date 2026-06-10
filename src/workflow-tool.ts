@@ -90,13 +90,14 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       "For workflow, parallel() takes functions, not promises: use `await parallel(items.map(item => () => agent('...', { label: '...' })))`, never `await parallel(items.map(item => agent(...)))`. Results are returned in input order.",
       "For workflow, pipeline(items, ...stages) runs each item through stages sequentially, while different items may run concurrently. Each stage receives (previousValue, originalItem, index).",
       "For workflow, every agent() call should include a unique short label option, 2-5 words, such as { label: 'repo inventory' } or { label: 'source modules' }; unique labels make live status and error reporting readable.",
-      "For workflow, use agent() for simple awaited subagents and spawn() when you need an id, status(), result handle, mailbox communication, or non-blocking setup. Public spawn handles must be awaited before workflow return; leaked running/paused handles fail the workflow and are cleaned up.",
+      "For workflow, use agent() for simple awaited subagents and spawn() when you need an id, status(), result handle, mailbox communication, or non-blocking setup. Public spawn handles must be awaited before workflow return; leaked running/paused handles fail the workflow and are cleaned up. Mailbox runs write a full transcript artifact; the completion text and details include the transcript path for debugging.",
       "For workflow, every agent()/spawn() call may include a built-in tool allowlist such as { tools: ['read', 'grep', 'find', 'ls'] }. Omit tools for the runtime default read-only tools; use tools: [] for no coding tools. Add bash, edit, or write only when the subagent truly needs side effects.",
       "For workflow, agent() may include a source-qualified reusable role such as { role: 'package:reviewer' }. Use package roles for common reviewer, critic, scout, planner, synthesizer, and worker behavior. Project roles are repository-controlled and denied unless the host explicitly allows them.",
       "For workflow, agent()/spawn() may include model: 'provider/model-id' to run that subagent on a configured Pi model, or stream: 'light' | 'medium' | 'heavy' to let runtime policy route the model. thinkingLevel is separate and may be 'off', 'minimal', 'low', 'medium', 'high', or 'xhigh'. Unknown explicit model refs fail before launch.",
       "For workflow, agent()/spawn() may include timeoutSeconds and retry: { attempts, delayMs, backoff }. retry.attempts includes the first attempt; failed intermediate attempts are logged, and exhausted branches return null unless the workflow is aborted.",
       "For workflow, failed agent(), parallel(), or pipeline() branches return null and log the failure unless the workflow is aborted. Check for nulls before synthesizing conclusions.",
       "For workflow, use handoff(value, { inlineLimit }) before passing potentially large upstream outputs to later agents; it returns inline text for small values and a temp-file instruction for large values.",
+      "For workflow, do not start final synthesis until every intended upstream lane has settled. Store all lane promises/handles, await them with parallel()/Promise.all/handle.result, check for nulls or failures, and only then call the final synthesis agent. Never interpolate unresolved promises into prompts or handoff(); strings like [object Promise] mean you forgot to await upstream results.",
       "For workflow, include a final synthesis/assertion agent when combining multiple subagent results; return a compact JSON-serializable value with ok/verdict plus the important outputs.",
       "For workflow, if agent() needs machine-readable output, pass a plain JSON Schema via opts.schema; agent() will return the validated object. Use JSON Schema syntax, not TypeScript or TypeBox constructors.",
       "For workflow, do not assume the parent assistant has repository code context inside subagents; include enough task context and relevant paths in each agent prompt.",
@@ -192,11 +193,15 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       snapshot = recomputeWorkflowSnapshot(snapshot);
       display.complete(snapshot);
 
+      const mailboxText = result.mailbox
+        ? `\n\nMailbox transcript: ${result.mailbox.transcriptPath} (${result.mailbox.eventCount} event(s))`
+        : "";
+
       return {
         content: [
           {
             type: "text",
-            text: `Workflow ${result.meta.name} completed with ${result.agentCount} agent(s).\n\nResult:\n${JSON.stringify(result.result, null, 2)}`,
+            text: `Workflow ${result.meta.name} completed with ${result.agentCount} agent(s).${mailboxText}\n\nResult:\n${JSON.stringify(result.result, null, 2)}`,
           },
         ],
         details: {
@@ -206,6 +211,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           logs: result.logs,
           result: result.result,
           durationMs: result.durationMs,
+          mailbox: result.mailbox,
         },
       };
     },
