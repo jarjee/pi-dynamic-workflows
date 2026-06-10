@@ -33,7 +33,7 @@ const workflowToolSchema = Type.Object({
   script: Type.String({
     description: [
       "Required raw JavaScript workflow script, with no Markdown fences.",
-      "First statement: export const meta = { name: 'short_snake_case', description: 'non-empty description' }. meta.phases is optional documentation; live progress is driven by phase(title).",
+      "First statement: export const meta = { name: 'short_snake_case', description: 'non-empty description' }. meta.phases is optional documentation and, if present, must be an array of objects like { title: 'Scan' }, not strings; live progress is driven by phase(title).",
       "Use phase('Name'), agent(prompt, opts), spawn(prompt, opts), parallel(arrayOfFunctions), pipeline(items, ...stages), handoff(value, opts), mailbox, log(message), args, and budget. The workflow must call agent() or spawn() at least once.",
       "parallel() requires functions, not promises: await parallel(items.map(item => () => agent(...))).",
     ].join(" "),
@@ -70,14 +70,14 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
     label: "Workflow",
     description: [
       "Execute a deterministic JavaScript workflow that orchestrates multiple subagents with agent(), parallel(), and pipeline().",
-      "script is required raw JavaScript. It must start with export const meta = { name, description } and must call agent() at least once; phases are optional metadata.",
+      "script is required raw JavaScript. It must start with export const meta = { name, description } and must call agent() at least once; phases are optional metadata. If meta.phases is present, every item must be an object with a title string, e.g. { title: 'Scan' }; do not use ['Scan'].",
     ].join(" "),
     promptSnippet:
       "Run a deterministic JavaScript workflow. Required script header: export const meta = { name: 'short_snake_case', description: 'non-empty description' }. Use phase(title) at runtime to create progress groups.",
     promptGuidelines: [
       "Use workflow only when the user explicitly asks for a workflow, workflows, fan-out, or multi-agent orchestration.",
       "For workflow, always pass one raw JavaScript string in the required script parameter; do not include Markdown fences or prose around the script.",
-      "For workflow, the script's first statement must be `export const meta = { name: 'short_snake_case', description: 'non-empty human description' }`; meta.name and meta.description are required non-empty strings, and meta.phases is optional metadata for a stable upfront outline.",
+      "For workflow, the script's first statement must be `export const meta = { name: 'short_snake_case', description: 'non-empty human description' }`; meta.name and meta.description are required non-empty strings. Prefer omitting meta.phases; if included it must be objects with title strings such as phases: [{ title: 'Scan' }], never phases: ['Scan'].",
       "For workflow, write plain JavaScript after the meta export. Do not use TypeScript syntax, imports, require(), fs, Date.now(), Math.random(), or new Date().",
       "For workflow, available globals are agent(prompt, opts), spawn(prompt, opts), parallel(thunks), pipeline(items, ...stages), handoff(value, opts), mailbox, phase(title), log(message), args, cwd, process.cwd(), policy, and budget. Every workflow must call agent() or spawn() at least once; do not use workflow only to declare phases or return a static object.",
       "For workflow, call phase(title) when a new group of work starts. Phase names may be conditional or built in a loop; do not predeclare speculative phases just in case.",

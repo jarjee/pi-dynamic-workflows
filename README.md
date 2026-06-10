@@ -47,7 +47,7 @@ Press `Esc` to cancel a running workflow. Active subagents are aborted immediate
 
 ## Workflow script shape
 
-A workflow is plain JavaScript. The first statement must export literal metadata. `name` and `description` are required; `phases` is optional documentation for an expected outline. The live progress view is driven by `phase(...)` calls at runtime:
+A workflow is plain JavaScript. The first statement must export literal metadata. `name` and `description` are required. `phases` is optional documentation for an expected outline; if present, it must be an array of objects with title strings, e.g. `{ title: 'Scan' }`, not an array of strings. The live progress view is driven by `phase(...)` calls at runtime, so most generated workflows should omit `meta.phases` and call `phase(...)` as work starts:
 
 ```js
 export const meta = {

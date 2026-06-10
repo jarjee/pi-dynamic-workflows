@@ -7,7 +7,8 @@ test("createWorkflowTool describes phases as optional and dynamic", () => {
 
   assert.match(tool.promptSnippet ?? "", /export const meta = \{ name: 'short_snake_case', description:/);
   assert.doesNotMatch(tool.promptSnippet ?? "", /phases: \[/);
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("meta.phases is optional metadata")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("Prefer omitting meta.phases")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("never phases: ['Scan']")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("Phase names may be conditional or built in a loop")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("file ownership")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("spawn()")));
