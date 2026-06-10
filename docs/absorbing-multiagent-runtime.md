@@ -20,12 +20,13 @@ The runtime should absorb useful `pi-multiagent` safety and execution features a
 5. **No ambient power by accident.** Do not implicitly inherit extension tools, project-controlled prompts, skills, or broad coding tools.
 6. **Unsupported grants fail closed.** Until explicit extension-tool or caller-skill grant plumbing is implemented, scripts that request `extensionTools` or `callerSkills` fail instead of silently receiving or ignoring power.
 7. **Plan ownership before side effects.** For implementation workflows, define non-overlapping file or directory ownership before launching parallel write-capable lanes.
+8. **Validate before declaring completion.** Side-effectful workflows need a final formatter/linter/typecheck/test gate, and failures should be repaired before synthesis says the work is done.
 
 ## Absorbed features
 
 ### Workflow composition
 
-Transferable team-composition rules apply to workflows: gate whether the work has real independent streams, keep the number of lanes small enough to coordinate, make dependencies explicit, and define concrete deliverables for each lane. For side-effectful lanes, file ownership must be explicit and non-overlapping; otherwise serialize the work or add dependencies.
+Transferable team-composition rules apply to workflows: gate whether the work has real independent streams, keep the number of lanes small enough to coordinate, make dependencies explicit, and define concrete deliverables for each lane. For side-effectful lanes, file ownership must be explicit and non-overlapping; otherwise serialize the work or add dependencies. End side-effectful workflows with an explicit validation lane/gate that runs relevant formatting, linting, typechecking, and tests before final synthesis.
 
 Useful archetypes include implementation lanes split by layer or module, review lanes split by perspective, debugging lanes split by hypothesis, research lanes split by alternative, and migration lanes split by file set with a validator lane.
 
