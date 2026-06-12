@@ -391,7 +391,7 @@ test("WorkflowAgent applies runtime default tool allowlists when an agent omits 
   );
 });
 
-test("runWorkflow applies policy default tool allowlists to omitted agent tools", async () => {
+test("runWorkflow leaves omitted agent tools unresolved for the agent runner", async () => {
   const calls: Array<{ tools?: string[] }> = [];
   const agentRunner = {
     async run(_prompt: string, options: { tools?: string[] }): Promise<string> {
@@ -411,7 +411,7 @@ return await agent('do work', { label: 'worker' })
     { agent: agentRunner, policy: { defaultTools: ["read"] } },
   );
 
-  assert.deepEqual(calls, [{ tools: ["read"] }]);
+  assert.deepEqual(calls, [{ tools: undefined }]);
 });
 
 test("runWorkflow fails closed for extension tool grants until supported", async () => {
