@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import type { ActiveWorkflowStore } from "./active-workflow.js";
 import {
   createToolUpdateWorkflowDisplay,
   createWorkflowSnapshot,
@@ -88,6 +89,8 @@ export interface WorkflowToolOptions {
   extensionTools?: ToolDefinition[];
   /** Host extension tool names inherited from the parent Pi session (e.g. MCP/Glean). Evaluated per workflow execution when a function is supplied. */
   hostToolNames?: string[] | (() => string[]);
+  /** Shared active workflow state used by interactive UI surfaces such as /workflow. */
+  activeWorkflowStore?: ActiveWorkflowStore;
 }
 
 export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefinition<typeof workflowToolSchema, any> {
@@ -97,6 +100,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
     description:
       "Orchestrate multiple subagents in a JavaScript workflow script using agent(), spawn(), parallel(), and pipeline(). Read DOCS.md in the pi-dynamic-workflows package for full API reference and examples.",
     promptSnippet: `Orchestrate subagents via a JavaScript workflow script. Pass raw JS with \`export const meta = { name, description }\` as the first statement. Globals: agent, spawn, parallel, pipeline, phase, log, handoff, mailbox, args, cwd, budget, policy. handoff() is synchronous.`,
+    executionMode: "sequential",
     promptGuidelines: [
       `Workflow script rules (follow exactly):`,
       `- Plain JavaScript only — no TypeScript, no imports, no require, no fs.`,
@@ -142,129 +146,142 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       const script = normalizeWorkflowScript(params.script);
       const parsed = parseWorkflowScript(script);
       let snapshot: WorkflowSnapshot = createWorkflowSnapshot(parsed.meta);
-      const display = createToolUpdateWorkflowDisplay(onUpdate, undefined, workflowDisplayOptions);
+      const activeWorkflow = options.activeWorkflowStore?.create(snapshot);
+      const display = createToolUpdateWorkflowDisplay(onUpdate, ctx, {
+        ...workflowDisplayOptions,
+        showResultPreviews: ctx.ui.getToolsExpanded(),
+      });
 
       const update = () => {
         snapshot = recomputeWorkflowSnapshot(snapshot);
+        activeWorkflow?.update(snapshot);
         display.update(snapshot);
       };
 
-      const recordPhase = (title: string | undefined) => {
-        if (!title) return;
-        if (!snapshot.phases.includes(title)) snapshot.phases.push(title);
+      const completeDisplay = () => {
+        snapshot = recomputeWorkflowSnapshot(snapshot);
+        activeWorkflow?.update(snapshot, true);
+        display.complete(snapshot);
       };
 
-      const completedResults = new Map<string, unknown>();
-      let result: WorkflowRunResult;
       try {
-        result = await runWorkflow(script, {
-          cwd: options.cwd ?? ctx.cwd,
-          args: params.args,
-          signal,
-          concurrency: options.concurrency,
-          hardAbortGraceMs: options.hardAbortGraceMs,
-          policy: params.policy,
-          customTools: options.extensionTools,
-          hostToolNames: typeof options.hostToolNames === "function" ? options.hostToolNames() : options.hostToolNames,
-          session: {
-            modelRegistry: ctx.modelRegistry,
-            model: ctx.model,
-          },
-          onLog(message) {
-            snapshot.logs.push(message);
-            update();
-          },
-          onPhase(title) {
-            snapshot.currentPhase = title;
-            recordPhase(title);
-            update();
-          },
-          onAgentStart(event) {
-            if (signal?.aborted) throw new Error("Workflow was aborted");
-            recordPhase(event.phase);
-            snapshot.agents.push({
-              id: snapshot.agents.length + 1,
-              label: event.label,
-              phase: event.phase,
-              prompt: event.prompt,
-              status: "running",
-            });
-            update();
-          },
-          onAgentEnd(event) {
-            const agent = [...snapshot.agents]
-              .reverse()
-              .find((item) => item.label === event.label && item.status === "running");
-            if (agent) {
-              agent.status = event.result === null ? "error" : "done";
-              agent.resultPreview = preview(event.result);
+        const recordPhase = (title: string | undefined) => {
+          if (!title) return;
+          if (!snapshot.phases.includes(title)) snapshot.phases.push(title);
+        };
+
+        const completedResults = new Map<string, unknown>();
+        let result: WorkflowRunResult;
+        try {
+          result = await runWorkflow(script, {
+            cwd: options.cwd ?? ctx.cwd,
+            args: params.args,
+            signal,
+            concurrency: options.concurrency,
+            hardAbortGraceMs: options.hardAbortGraceMs,
+            policy: params.policy,
+            customTools: options.extensionTools,
+            hostToolNames:
+              typeof options.hostToolNames === "function" ? options.hostToolNames() : options.hostToolNames,
+            session: {
+              modelRegistry: ctx.modelRegistry,
+              model: ctx.model,
+            },
+            onLog(message) {
+              snapshot.logs.push(message);
+              update();
+            },
+            onPhase(title) {
+              snapshot.currentPhase = title;
+              recordPhase(title);
+              update();
+            },
+            onAgentStart(event) {
+              if (signal?.aborted) throw new Error("Workflow was aborted");
+              recordPhase(event.phase);
+              snapshot.agents.push({
+                id: snapshot.agents.length + 1,
+                label: event.label,
+                phase: event.phase,
+                prompt: event.prompt,
+                status: "running",
+              });
+              update();
+            },
+            onAgentEnd(event) {
+              const agent = [...snapshot.agents]
+                .reverse()
+                .find((item) => item.label === event.label && item.status === "running");
+              if (agent) {
+                agent.status = event.result === null ? "error" : "done";
+                agent.resultPreview = preview(event.result);
+              }
+              if (event.result !== null) {
+                completedResults.set(event.label, event.result);
+              }
+              update();
+            },
+          });
+        } catch (error) {
+          if (signal?.aborted || isAbortError(error)) {
+            for (const agent of snapshot.agents) {
+              if (agent.status === "running") {
+                agent.status = "skipped";
+                agent.error = "aborted";
+              }
             }
-            if (event.result !== null) {
-              completedResults.set(event.label, event.result);
-            }
-            update();
-          },
-        });
-      } catch (error) {
-        if (signal?.aborted || isAbortError(error)) {
-          for (const agent of snapshot.agents) {
-            if (agent.status === "running") {
-              agent.status = "skipped";
-              agent.error = "aborted";
-            }
+            completeDisplay();
+            throw new Error("Workflow was aborted");
           }
-          snapshot = recomputeWorkflowSnapshot(snapshot);
-          display.complete(snapshot);
-          throw new Error("Workflow was aborted");
+          // Partial recovery: persist completed agent results so a follow-up
+          // workflow can pick up where this one failed.
+          const recovery = persistRecovery(completedResults, snapshot, error);
+          completeDisplay();
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: formatRecoveryMessage(error, recovery, snapshot),
+              },
+            ],
+            details: { ...snapshot, error: error instanceof Error ? error.message : String(error), recovery },
+          };
         }
-        // Partial recovery: persist completed agent results so a follow-up
-        // workflow can pick up where this one failed.
-        const recovery = persistRecovery(completedResults, snapshot, error);
-        snapshot = recomputeWorkflowSnapshot(snapshot);
-        display.complete(snapshot);
+
+        if (result.agentCount === 0) {
+          throw new Error(
+            "workflow scripts must call agent() at least once; this workflow declared phases but did not run any subagents",
+          );
+        }
+
+        snapshot.result = result.result;
+        snapshot.durationMs = result.durationMs;
+        completeDisplay();
+
+        const mailboxText = result.mailbox
+          ? `\n\nMailbox transcript: ${result.mailbox.transcriptPath} (${result.mailbox.eventCount} event(s))`
+          : "";
+
         return {
           content: [
             {
-              type: "text" as const,
-              text: formatRecoveryMessage(error, recovery, snapshot),
+              type: "text",
+              text: `Workflow ${result.meta.name} completed with ${result.agentCount} agent(s).${mailboxText}\n\nResult:\n${JSON.stringify(result.result, null, 2)}`,
             },
           ],
-          details: { ...snapshot, error: error instanceof Error ? error.message : String(error), recovery },
-        };
-      }
-
-      if (result.agentCount === 0) {
-        throw new Error(
-          "workflow scripts must call agent() at least once; this workflow declared phases but did not run any subagents",
-        );
-      }
-
-      snapshot.result = result.result;
-      snapshot.durationMs = result.durationMs;
-      snapshot = recomputeWorkflowSnapshot(snapshot);
-      display.complete(snapshot);
-
-      const mailboxText = result.mailbox
-        ? `\n\nMailbox transcript: ${result.mailbox.transcriptPath} (${result.mailbox.eventCount} event(s))`
-        : "";
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Workflow ${result.meta.name} completed with ${result.agentCount} agent(s).${mailboxText}\n\nResult:\n${JSON.stringify(result.result, null, 2)}`,
+          details: {
+            ...snapshot,
+            meta: result.meta,
+            phases: result.phases,
+            logs: result.logs,
+            result: result.result,
+            durationMs: result.durationMs,
+            mailbox: result.mailbox,
           },
-        ],
-        details: {
-          ...snapshot,
-          meta: result.meta,
-          phases: result.phases,
-          logs: result.logs,
-          result: result.result,
-          durationMs: result.durationMs,
-          mailbox: result.mailbox,
-        },
-      };
+        };
+      } finally {
+        if (activeWorkflow) options.activeWorkflowStore?.clear(activeWorkflow);
+      }
     },
     renderCall(_args, theme) {
       return new Text(theme.fg("toolTitle", theme.bold("workflow")), 0, 0);
