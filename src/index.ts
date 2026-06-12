@@ -1,3 +1,5 @@
+export type { ActiveWorkflow, ActiveWorkflowStore } from "./active-workflow.js";
+export { createActiveWorkflowStore } from "./active-workflow.js";
 export type { AgentRunOptions, AgentRunResult, WorkflowAgentOptions } from "./agent.js";
 export { WorkflowAgent } from "./agent.js";
 export type {
@@ -30,5 +32,6 @@ export type {
   WorkflowRunResult,
 } from "./workflow.js";
 export { parseWorkflowScript, runWorkflow } from "./workflow.js";
+export { createWorkflowInspector } from "./workflow-inspector.js";
 export type { WorkflowToolInput, WorkflowToolOptions } from "./workflow-tool.js";
 export { createWorkflowTool } from "./workflow-tool.js";
