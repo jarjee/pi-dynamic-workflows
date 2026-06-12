@@ -1,3 +1,4 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -143,14 +144,14 @@ export async function runWorkflow<T = unknown>(
     remaining: () => (options.tokenBudget == null ? Infinity : Math.max(0, options.tokenBudget - state.spent)),
   });
 
-  const handoff = async (value: unknown, handoffOptions: unknown = {}) => {
+  const handoff = (value: unknown, handoffOptions: unknown = {}) => {
     const options = normalizeHandoffOptions(handoffOptions);
     rejectPromiseValue(value, "handoff value");
     const text = stringifyHandoffValue(value);
     if (text.length <= options.inlineLimit) return text;
-    const dir = await mkdtemp(join(tmpdir(), "pi-workflow-handoff-"));
+    const dir = mkdtempSync(join(tmpdir(), "pi-workflow-handoff-"));
     const filePath = join(dir, "handoff.txt");
-    await writeFile(filePath, text, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(filePath, text, { encoding: "utf8", mode: 0o600 });
     return `Workflow handoff artifact:\npath: ${JSON.stringify(filePath)}\nRead this file when you need the full upstream handoff.`;
   };
 

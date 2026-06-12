@@ -21,6 +21,9 @@ export function createWorkflowInspector(
 }
 
 class WorkflowInspector implements Component {
+  private static readonly MAX_VISIBLE_ROWS = 12;
+  private static readonly MAX_LOG_ROWS = 5;
+
   private selected = 0;
   private globalExpanded: boolean;
   private readonly phaseOverrides = new Map<string, boolean>();
@@ -62,6 +65,14 @@ class WorkflowInspector implements Component {
       this.selected = Math.min(this.rows().length - 1, this.selected + 1);
       return;
     }
+    if (matchesKey(data, "pageUp")) {
+      this.selected = Math.max(0, this.selected - WorkflowInspector.MAX_VISIBLE_ROWS);
+      return;
+    }
+    if (matchesKey(data, "pageDown")) {
+      this.selected = Math.min(this.rows().length - 1, this.selected + WorkflowInspector.MAX_VISIBLE_ROWS);
+      return;
+    }
     if (matchesKey(data, "home")) {
       this.selected = 0;
       return;
@@ -101,27 +112,35 @@ class WorkflowInspector implements Component {
     const right = borderWidth - left;
     lines.push(`╭${"─".repeat(left)}${title}${"─".repeat(right)}╮`);
     lines.push(row(headerText(snapshot)));
-    if (snapshot.description) lines.push(row(snapshot.description));
+    lines.push(row(snapshot.description ?? ""));
     lines.push(border("├", "─", "┤"));
 
     const rows = this.rows();
+    const visibleRows = this.visibleRows(rows);
     if (rows.length === 0) {
       lines.push(row("No phases or subagents yet."));
     } else {
-      for (let i = 0; i < rows.length; i++) {
-        const selected = i === this.selected;
-        lines.push(row(this.renderInspectorRow(rows[i], selected)));
+      for (const { row: inspectorRow, index } of visibleRows) {
+        const selected = index === this.selected;
+        lines.push(row(this.renderInspectorRow(inspectorRow, selected)));
       }
     }
-
-    if (snapshot.logs.length > 0) {
-      lines.push(border("├", "─", "┤"));
-      lines.push(row("Recent logs"));
-      for (const log of snapshot.logs.slice(-5)) lines.push(row(`  ${log}`));
+    while (lines.length < 5 + WorkflowInspector.MAX_VISIBLE_ROWS) lines.push(row());
+    if (rows.length > WorkflowInspector.MAX_VISIBLE_ROWS) {
+      const first = (visibleRows[0]?.index ?? 0) + 1;
+      const last = (visibleRows.at(-1)?.index ?? 0) + 1;
+      lines.push(row(`Showing ${first}-${last} of ${rows.length}`));
+    } else {
+      lines.push(row());
     }
 
     lines.push(border("├", "─", "┤"));
-    lines.push(row("↑↓ select • space/enter toggle • ←/→ collapse/expand • ctrl+o global • esc close"));
+    lines.push(row("Recent logs"));
+    for (const log of snapshot.logs.slice(-WorkflowInspector.MAX_LOG_ROWS)) lines.push(row(`  ${log}`));
+    while (lines.length < 8 + WorkflowInspector.MAX_VISIBLE_ROWS + WorkflowInspector.MAX_LOG_ROWS) lines.push(row());
+
+    lines.push(border("├", "─", "┤"));
+    lines.push(row("↑↓/pg select • space/enter toggle • ←/→ collapse/expand • ctrl+o global • esc close"));
     lines.push(border("╰", "─", "╯"));
     return lines;
   }
@@ -132,6 +151,22 @@ class WorkflowInspector implements Component {
 
   dispose(): void {
     this.unsubscribe();
+  }
+
+  private visibleRows(rows: InspectorRow[]): Array<{ row: InspectorRow; index: number }> {
+    if (rows.length <= WorkflowInspector.MAX_VISIBLE_ROWS) {
+      return rows.map((row, index) => ({ row, index }));
+    }
+    const start = Math.max(
+      0,
+      Math.min(
+        this.selected - Math.floor(WorkflowInspector.MAX_VISIBLE_ROWS / 2),
+        rows.length - WorkflowInspector.MAX_VISIBLE_ROWS,
+      ),
+    );
+    return rows
+      .slice(start, start + WorkflowInspector.MAX_VISIBLE_ROWS)
+      .map((row, offset) => ({ row, index: start + offset }));
   }
 
   private renderInspectorRow(row: InspectorRow, selected: boolean): string {

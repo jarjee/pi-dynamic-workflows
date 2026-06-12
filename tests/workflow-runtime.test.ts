@@ -342,12 +342,29 @@ test("runWorkflow rejects handoff values that are unresolved promises", async ()
 }
 
 const lane = agent('lane', { label: 'lane' })
-return await handoff(lane)
+return handoff(lane)
 `,
         { agent: fakeAgent },
       ),
     /handoff value is a Promise.*await the upstream result/i,
   );
+});
+
+test("runWorkflow handoff is synchronous and safe in prompts", async () => {
+  const result = await runWorkflow(
+    `export const meta = {
+  name: 'sync_handoff',
+  description: 'Use handoff without await in a downstream prompt'
+}
+
+const upstream = await agent('first', { label: 'first' })
+const ref = handoff(upstream)
+return await agent('second: ' + ref, { label: 'second' })
+`,
+    { agent: fakeAgent },
+  );
+
+  assert.equal(result.result, "result:second: result:first");
 });
 
 test("runWorkflow forwards requested tool allowlists to subagents", async () => {
@@ -455,7 +472,7 @@ test("runWorkflow handoff writes large values to a temp artifact", async () => {
   description: 'Write a large handoff artifact'
 }
 
-return await handoff('abcdef', { inlineLimit: 3 })
+return handoff('abcdef', { inlineLimit: 3 })
 `,
   );
 
