@@ -53,6 +53,7 @@ class WorkflowInspector implements Component {
     if (this.keybindings.matches(data, "app.tools.expand")) {
       this.globalExpanded = !this.globalExpanded;
       this.phaseOverrides.clear();
+      this.clampSelection();
       this.tui.requestRender();
       return;
     }
