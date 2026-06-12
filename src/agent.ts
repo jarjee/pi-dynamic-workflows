@@ -16,8 +16,10 @@ export interface WorkflowAgentOptions {
   cwd?: string;
   /** Built-in coding tools available when an agent call omits its own tools allowlist. */
   defaultTools?: string[];
-  /** Additional custom tools always available to subagents. */
-  tools?: ToolDefinition[];
+  /** Additional custom tool definitions always available to subagents, separate from built-in coding tools. */
+  customTools?: ToolDefinition[];
+  /** Extension tools from the pi host session (e.g. MCP tools). Merged into the built-in tool lookup table; built-in names win on collision. */
+  extensionTools?: ToolDefinition[];
   /** Override any createAgentSession option (model, authStorage, resourceLoader, etc.). */
   session?: Partial<CreateAgentSessionOptions>;
   /** Extra system guidance prepended to every subagent task. */
@@ -60,8 +62,8 @@ export class WorkflowAgent {
 
   constructor(options: WorkflowAgentOptions = {}) {
     this.cwd = options.cwd ?? process.cwd();
-    this.codingTools = uniqueToolsByName([...createCodingTools(this.cwd), ...createReadOnlyTools(this.cwd)]);
-    this.customTools = options.tools ?? [];
+    this.codingTools = uniqueToolsByName([...createCodingTools(this.cwd), ...createReadOnlyTools(this.cwd), ...(options.extensionTools ?? [])]);
+    this.customTools = options.customTools ?? [];
     this.defaultTools = options.defaultTools ?? DEFAULT_WORKFLOW_TOOLS;
     this.sessionOptions = options.session ?? {};
     this.instructions = options.instructions;
