@@ -1,3 +1,7 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -31,12 +35,8 @@ const workflowPolicySchema = Type.Optional(
 
 const workflowToolSchema = Type.Object({
   script: Type.String({
-    description: [
-      "Required raw JavaScript workflow script, with no Markdown fences.",
-      "First statement: export const meta = { name: 'short_snake_case', description: 'non-empty description' }. meta.phases is optional documentation and, if present, must be an array of objects like { title: 'Scan' }, not strings; live progress is driven by phase(title).",
-      "Use phase('Name'), agent(prompt, opts), spawn(prompt, opts), parallel(arrayOfFunctions), pipeline(items, ...stages), handoff(value, opts), mailbox, log(message), args, and budget. The workflow must call agent() or spawn() at least once.",
-      "parallel() requires functions, not promises: await parallel(items.map(item => () => agent(...))).",
-    ].join(" "),
+    description:
+      "Raw JavaScript. First statement: export const meta = { name, description }. Must call agent() or spawn() at least once.",
   }),
   args: Type.Optional(
     Type.Any({ description: "Optional JSON value exposed to the workflow script as global `args`." }),
@@ -58,49 +58,79 @@ const workflowDisplayOptions = {
   showResultPreviews: false,
 } as const;
 
+const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const docsDir = join(packageRoot, "docs");
+const docPath = join(packageRoot, "DOCS.md");
+
+const WORKFLOW_MINIMAL_EXAMPLE = [
+  'export const meta = { name: "example", description: "..." }',
+  '',
+  'phase("Scan")',
+  'const ctx = await agent("Scan the codebase", { label: "scan", stream: "light" })',
+  '',
+  'phase("Review")',
+  'const ref = handoff(ctx)',
+  'const reviews = await parallel(["security", "perf", "style"].map(aspect => () =>',
+  '  agent("Review " + aspect + ". Context:\\n" + ref, { label: "review-" + aspect, stream: "medium" })',
+  '))',
+  '',
+  'phase("Synthesize")',
+  'const valid = reviews.filter(Boolean)',
+  'return await agent("Synthesize findings:\\n" + handoff(valid), { label: "synthesis", stream: "heavy" })',
+].join("\n");
+
 export interface WorkflowToolOptions {
   cwd?: string;
   concurrency?: number;
   hardAbortGraceMs?: number;
+  /** Extension tools from the pi host session (e.g. MCP tools) available to workflow subagents. */
+  extensionTools?: ToolDefinition[];
 }
 
 export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefinition<typeof workflowToolSchema, any> {
   return defineTool({
     name: "workflow",
     label: "Workflow",
-    description: [
-      "Execute a deterministic JavaScript workflow that orchestrates multiple subagents with agent(), parallel(), and pipeline().",
-      "script is required raw JavaScript. It must start with export const meta = { name, description } and must call agent() at least once; phases are optional metadata. If meta.phases is present, every item must be an object with a title string, e.g. { title: 'Scan' }; do not use ['Scan'].",
-    ].join(" "),
+    description:
+      "Orchestrate multiple subagents in a JavaScript workflow script using agent(), spawn(), parallel(), and pipeline(). Read DOCS.md in the pi-dynamic-workflows package for full API reference and examples.",
     promptSnippet:
-      "Run a deterministic JavaScript workflow. Required script header: export const meta = { name: 'short_snake_case', description: 'non-empty description' }. Use phase(title) at runtime to create progress groups.",
+      `Orchestrate subagents via a JavaScript workflow script. Pass raw JS with \`export const meta = { name, description }\` as the first statement. Globals: agent, spawn, parallel, pipeline, phase, log, handoff, mailbox, args, cwd, budget, policy. handoff() is synchronous.`,
     promptGuidelines: [
-      "Use workflow only when the user explicitly asks for a workflow, workflows, fan-out, or multi-agent orchestration.",
-      "For workflow, always pass one raw JavaScript string in the required script parameter; do not include Markdown fences or prose around the script.",
-      "For workflow, the script's first statement must be `export const meta = { name: 'short_snake_case', description: 'non-empty human description' }`; meta.name and meta.description are required non-empty strings. Prefer omitting meta.phases; if included it must be objects with title strings such as phases: [{ title: 'Scan' }], never phases: ['Scan'].",
-      "For workflow, write plain JavaScript after the meta export. Do not use TypeScript syntax, imports, require(), fs, Date.now(), Math.random(), or new Date(). Workflow scripts do not have direct file tools such as read(), grep(), find(), ls(), or bash(); delegate file inspection to subagents with explicit tools, or pass file paths into subagent prompts.",
-      "For workflow, available globals are agent(prompt, opts), spawn(prompt, opts), parallel(thunks), pipeline(items, ...stages), handoff(value, opts), mailbox, phase(title), log(message), args, cwd, process.cwd(), policy, and budget. Every workflow must call agent() or spawn() at least once; do not use workflow only to declare phases or return a static object.",
-      "For workflow, call phase(title) when a new group of work starts. Phase names may be conditional or built in a loop; do not predeclare speculative phases just in case.",
-      "For workflow, first gate fit: use it when there are independent work streams, distinct areas of expertise, broad context gathering, many similar checks, or repeatable quality gates. A good workflow may spawn many subagents when the work is genuinely fan-out; do not prematurely collapse useful independent lanes into a small fixed set. Avoid workflows for mostly sequential work, tightly coupled edits, single-file tasks, or work likely to need user input midway.",
-      "For workflow, before writing the script identify the goal, scope, stream boundaries, file ownership for any side-effectful lanes, dependencies, and expected deliverables.",
-      "For workflow, pick work stream based on required power: light for cheap summarization/classification over many items, medium for normal code generation or repo review, and heavy for architecture, final synthesis, adversarial critique, or quality gates.",
-      "For workflow, side-effectful implementation lanes must have explicit non-overlapping file or directory ownership in their prompts. Serialize lanes or add dependencies when ownership overlaps.",
-      "For workflow, side-effectful workflows need an explicit validation gate after edits: run the project's formatter/linter/typecheck/tests as appropriate, capture failures, fix them, and only then synthesize or report completion. Do not commit or call the work done before validation passes unless the user explicitly asked to skip it.",
-      "For workflow, keep progress/status text user-meaningful. Do not expose scratchpad notes like 'Need biome' or 'Run commit'; report concrete actions, evidence, failures, and next steps.",
-      "For workflow, parallel() takes functions, not promises: use `await parallel(items.map(item => () => agent('...', { label: '...' })))`, never `await parallel(items.map(item => agent(...)))`. Results are returned in input order.",
-      "For workflow, pipeline(items, ...stages) runs each item through stages sequentially, while different items may run concurrently. Each stage receives (previousValue, originalItem, index).",
-      "For workflow, every agent() call should include a unique short label option, 2-5 words, such as { label: 'repo inventory' } or { label: 'source modules' }; unique labels make live status and error reporting readable.",
-      "For workflow, use agent() for simple awaited subagents and spawn() when you need an id, status(), result handle, mailbox communication, or non-blocking setup. Public spawn handles must be awaited before workflow return; leaked running/paused handles fail the workflow and are cleaned up. Mailbox runs write a full transcript artifact; the completion text and details include the transcript path for debugging.",
-      "For workflow, every agent()/spawn() call may include a built-in tool allowlist such as { tools: ['read', 'grep', 'find', 'ls'] }. Omit tools for the runtime default read-only tools; use tools: [] for no coding tools. Add bash, edit, or write only when the subagent truly needs side effects.",
-      "For workflow, agent() may include a source-qualified reusable role such as { role: 'package:reviewer' }. Use package roles for common reviewer, critic, scout, planner, synthesizer, and worker behavior. Project roles are repository-controlled and denied unless the host explicitly allows them.",
-      "For workflow, agent()/spawn() may include model: 'provider/model-id' to run that subagent on a configured Pi model, or stream: 'light' | 'medium' | 'heavy' to let runtime policy route the model. thinkingLevel is separate and may be 'off', 'minimal', 'low', 'medium', 'high', or 'xhigh'. Unknown explicit model refs fail before launch.",
-      "For workflow, agent()/spawn() may include timeoutSeconds and retry: { attempts, delayMs, backoff }. retry.attempts includes the first attempt; failed intermediate attempts are logged, and exhausted branches return null unless the workflow is aborted.",
-      "For workflow, failed agent(), parallel(), or pipeline() branches return null and log the failure unless the workflow is aborted. Check for nulls before synthesizing conclusions.",
-      "For workflow, handoff(value, { inlineLimit }) is async; always write `const ref = await handoff(value, { inlineLimit })` before interpolating it into a prompt. It returns inline text for small values and a temp-file instruction for large values.",
-      "For workflow, do not start final synthesis until every intended upstream lane has settled. Store all lane promises/handles, await them with parallel()/Promise.all/handle.result, check for nulls or failures, then await any handoff(...) calls, and only then call the final synthesis agent. Never interpolate unresolved promises into prompts; strings like [object Promise] mean you forgot to await upstream results or await handoff(...).",
-      "For workflow, include a final synthesis/assertion agent when combining multiple subagent results; return a compact JSON-serializable value with ok/verdict plus the important outputs.",
-      "For workflow, if agent()/spawn() needs machine-readable output, pass a plain JSON Schema via opts.schema; the subagent must call structured_output and may still fail to do so, in which case the branch returns null unless retry is configured. Use JSON Schema syntax, not TypeScript or TypeBox constructors, add retry for important structured lanes, and always check for null before synthesis.",
-      "For workflow, do not assume the parent assistant has repository code context inside subagents; include enough task context and relevant paths in each agent prompt.",
+      `Workflow script rules (follow exactly):`,
+      `- Plain JavaScript only — no TypeScript, no imports, no require, no fs.`,
+      `- \`export const meta = { name, description }\` must be the first statement.`,
+      `- Date.now(), new Date(), and Math.random() are unavailable.`,
+      `- Delegate file operations to subagents via their \`tools\` option; workflow scripts have no direct tools.`,
+      `- Do NOT embed backtick template literals inside the script string argument. When building prompts with variable interpolation, use string concatenation (\`"prefix " + variable + " suffix"\`) or \`.join()\` instead of nested templates.`,
+      '',
+      `Agent call rules:`,
+      `- Every agent()/spawn() call must include a unique short \`label\` (2-5 words) for readable progress.`,
+      `- parallel() takes functions, not promises: \`await parallel(items.map(item => () => agent(...)))\`. Results in input order.`,
+      `- handoff() is synchronous — \`handoff(value)\` returns a string. No await needed. Safe in template literals.`,
+      `- Failed branches return null. Check for nulls before synthesis. Await all upstream lanes before a final synthesis agent.`,
+      `- Default subagent tools are read-only ['read', 'grep', 'find', 'ls']. Add 'bash', 'edit', 'write' only for side-effectful lanes.`,
+      '',
+      `Domain language (use these terms when designing workflows):`,
+      `- Subagent: an agent spawned inside a workflow via agent() or spawn().`,
+      `- Stream: rough work-size for model routing — 'light', 'medium', or 'heavy'. Separate from thinkingLevel.`,
+      `- Mailbox: communication channel between spawned subagents. Use spawn() + mailbox: true for team coordination.`,
+      `- Handoff: serialized data passed between workflow stages. Synchronous, returns string (inline or temp-file path).`,
+      `- Phase: labelled progress section set via phase(title). Groups subagents in the UI.`,
+      `- Lane: one parallel branch of work — a single function in a parallel() call.`,
+      `- Policy: frozen runtime config (defaultTools, maxConcurrency, modelsByStream).`,
+      '',
+      `Minimal valid workflow (fan-out review pattern):`,
+      '```js',
+      WORKFLOW_MINIMAL_EXAMPLE,
+      '```',
+      '',
+      `Workflow documentation (read before writing a complex workflow):`,
+      `- Main reference: ${docPath}`,
+      `- Detailed docs: ${docsDir}/`,
+      `- Key docs: workflow-api.md (full API), teams.md (spawn/mailbox), side-effects.md (file ownership, validation gates)`,
+      `- When reading workflow docs, resolve docs/... under ${docsDir}, not the current working directory.`,
+      `- Read docs completely and follow .md cross-references before implementing.`,
+      `- Project glossary and architecture decisions: ${join(packageRoot, "CONTEXT.md")}, ${join(packageRoot, "docs", "adr", "")}`,
     ],
     parameters: workflowToolSchema,
     prepareArguments(args) {
@@ -122,6 +152,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
         if (!snapshot.phases.includes(title)) snapshot.phases.push(title);
       };
 
+      const completedResults = new Map<string, unknown>();
       let result: WorkflowRunResult;
       try {
         result = await runWorkflow(script, {
@@ -131,6 +162,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           concurrency: options.concurrency,
           hardAbortGraceMs: options.hardAbortGraceMs,
           policy: params.policy,
+          extensionTools: options.extensionTools,
           session: {
             modelRegistry: ctx.modelRegistry,
             model: ctx.model,
@@ -164,6 +196,9 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
               agent.status = event.result === null ? "error" : "done";
               agent.resultPreview = preview(event.result);
             }
+            if (event.result !== null) {
+              completedResults.set(event.label, event.result);
+            }
             update();
           },
         });
@@ -179,7 +214,20 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           display.complete(snapshot);
           throw new Error("Workflow was aborted");
         }
-        throw error;
+        // Partial recovery: persist completed agent results so a follow-up
+        // workflow can pick up where this one failed.
+        const recovery = persistRecovery(completedResults, snapshot, error);
+        snapshot = recomputeWorkflowSnapshot(snapshot);
+        display.complete(snapshot);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: formatRecoveryMessage(error, recovery, snapshot),
+            },
+          ],
+          details: { ...snapshot, error: error instanceof Error ? error.message : String(error), recovery },
+        };
       }
 
       if (result.agentCount === 0) {
@@ -250,4 +298,85 @@ function normalizeWorkflowScript(script: string): string {
 function isAbortError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return /\babort(?:ed)?\b/i.test(error.message);
+}
+
+interface RecoveryInfo {
+  recoveryDir: string;
+  completedAgents: Array<{ label: string; resultFile: string }>;
+  failedAgents: string[];
+  runningAgents: string[];
+}
+
+function persistRecovery(
+  completedResults: Map<string, unknown>,
+  snapshot: WorkflowSnapshot,
+  _error: unknown,
+): RecoveryInfo {
+  const completedAgents: RecoveryInfo["completedAgents"] = [];
+  const failedAgents: string[] = [];
+  const runningAgents: string[] = [];
+
+  for (const agent of snapshot.agents) {
+    if (agent.status === "done") {
+      // will be written below
+    } else if (agent.status === "error") {
+      failedAgents.push(agent.label);
+    } else if (agent.status === "running") {
+      runningAgents.push(agent.label);
+    }
+  }
+
+  if (completedResults.size === 0) {
+    return { recoveryDir: "", completedAgents, failedAgents, runningAgents };
+  }
+
+  const recoveryDir = mkdtempSync(join(tmpdir(), "pi-workflow-recovery-"));
+  let index = 0;
+  for (const [label, result] of completedResults) {
+    const filename = `${String(index++).padStart(3, "0")}-${label.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`;
+    const filePath = join(recoveryDir, filename);
+    writeFileSync(filePath, JSON.stringify({ label, result }, null, 2), { encoding: "utf8", mode: 0o600 });
+    completedAgents.push({ label, resultFile: filePath });
+  }
+
+  // Write a manifest for easy discovery
+  writeFileSync(
+    join(recoveryDir, "manifest.json"),
+    JSON.stringify({ completedAgents, failedAgents, runningAgents }, null, 2),
+    { encoding: "utf8", mode: 0o600 },
+  );
+
+  return { recoveryDir, completedAgents, failedAgents, runningAgents };
+}
+
+function formatRecoveryMessage(error: unknown, recovery: RecoveryInfo, snapshot: WorkflowSnapshot): string {
+  const errorMsg = error instanceof Error ? error.message : String(error);
+  const lines = [`Workflow failed: ${errorMsg}`];
+  lines.push(
+    `\nCompleted: ${recovery.completedAgents.length} agent(s), Failed: ${recovery.failedAgents.length}, Running: ${recovery.runningAgents.length}`,
+  );
+  lines.push(`Phases reached: ${snapshot.phases.join(", ") || "(none)"}`);
+
+  if (recovery.completedAgents.length > 0) {
+    lines.push(`\nRecovery directory: ${recovery.recoveryDir}`);
+    lines.push("Completed agent results (read these to continue from where the workflow failed):");
+    for (const agent of recovery.completedAgents) {
+      lines.push(`  - ${agent.label}: ${agent.resultFile}`);
+    }
+    lines.push(`  - manifest: ${join(recovery.recoveryDir, "manifest.json")}`);
+  }
+
+  if (recovery.failedAgents.length > 0) {
+    lines.push(`\nFailed agents: ${recovery.failedAgents.join(", ")}`);
+  }
+
+  if (snapshot.logs.length > 0) {
+    lines.push(`\nWorkflow logs:`);
+    for (const log of snapshot.logs.slice(-10)) {
+      lines.push(`  ${log}`);
+    }
+  }
+
+  lines.push("\nYou can write a new workflow that reads the recovery files to continue from where this one failed.");
+  return lines.join("\n");
 }
