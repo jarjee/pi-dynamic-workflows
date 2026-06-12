@@ -19,6 +19,7 @@ import { parseWorkflowScript, runWorkflow, type WorkflowRunResult } from "./work
 const workflowPolicySchema = Type.Optional(
   Type.Object({
     defaultTools: Type.Optional(Type.Array(Type.String())),
+    hostTools: Type.Optional(Type.Union([Type.Literal("all"), Type.Literal("none"), Type.Array(Type.String())])),
     maxConcurrency: Type.Optional(Type.Integer({ minimum: 1 })),
     hardAbortGraceMs: Type.Optional(Type.Number({ minimum: 0 })),
     projectRoles: Type.Optional(Type.Union([Type.Literal("deny"), Type.Literal("allow")])),
@@ -64,18 +65,18 @@ const docPath = join(packageRoot, "DOCS.md");
 
 const WORKFLOW_MINIMAL_EXAMPLE = [
   'export const meta = { name: "example", description: "..." }',
-  '',
+  "",
   'phase("Scan")',
   'const ctx = await agent("Scan the codebase", { label: "scan", stream: "light" })',
-  '',
+  "",
   'phase("Review")',
-  'const ref = handoff(ctx)',
+  "const ref = handoff(ctx)",
   'const reviews = await parallel(["security", "perf", "style"].map(aspect => () =>',
   '  agent("Review " + aspect + ". Context:\\n" + ref, { label: "review-" + aspect, stream: "medium" })',
-  '))',
-  '',
+  "))",
+  "",
   'phase("Synthesize")',
-  'const valid = reviews.filter(Boolean)',
+  "const valid = reviews.filter(Boolean)",
   'return await agent("Synthesize findings:\\n" + handoff(valid), { label: "synthesis", stream: "heavy" })',
 ].join("\n");
 
@@ -83,8 +84,10 @@ export interface WorkflowToolOptions {
   cwd?: string;
   concurrency?: number;
   hardAbortGraceMs?: number;
-  /** Extension tools from the pi host session (e.g. MCP tools) available to workflow subagents. */
+  /** Compatibility escape hatch for executable custom tools supplied by an embedding host. */
   extensionTools?: ToolDefinition[];
+  /** Host extension tool names inherited from the parent Pi session (e.g. MCP/Glean). Evaluated per workflow execution when a function is supplied. */
+  hostToolNames?: string[] | (() => string[]);
 }
 
 export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefinition<typeof workflowToolSchema, any> {
@@ -93,8 +96,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
     label: "Workflow",
     description:
       "Orchestrate multiple subagents in a JavaScript workflow script using agent(), spawn(), parallel(), and pipeline(). Read DOCS.md in the pi-dynamic-workflows package for full API reference and examples.",
-    promptSnippet:
-      `Orchestrate subagents via a JavaScript workflow script. Pass raw JS with \`export const meta = { name, description }\` as the first statement. Globals: agent, spawn, parallel, pipeline, phase, log, handoff, mailbox, args, cwd, budget, policy. handoff() is synchronous.`,
+    promptSnippet: `Orchestrate subagents via a JavaScript workflow script. Pass raw JS with \`export const meta = { name, description }\` as the first statement. Globals: agent, spawn, parallel, pipeline, phase, log, handoff, mailbox, args, cwd, budget, policy. handoff() is synchronous.`,
     promptGuidelines: [
       `Workflow script rules (follow exactly):`,
       `- Plain JavaScript only — no TypeScript, no imports, no require, no fs.`,
@@ -102,14 +104,14 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       `- Date.now(), new Date(), and Math.random() are unavailable.`,
       `- Delegate file operations to subagents via their \`tools\` option; workflow scripts have no direct tools.`,
       `- Do NOT embed backtick template literals inside the script string argument. When building prompts with variable interpolation, use string concatenation (\`"prefix " + variable + " suffix"\`) or \`.join()\` instead of nested templates.`,
-      '',
+      "",
       `Agent call rules:`,
       `- Every agent()/spawn() call must include a unique short \`label\` (2-5 words) for readable progress.`,
       `- parallel() takes functions, not promises: \`await parallel(items.map(item => () => agent(...)))\`. Results in input order.`,
       `- handoff() is synchronous — \`handoff(value)\` returns a string. No await needed. Safe in template literals.`,
       `- Failed branches return null. Check for nulls before synthesis. Await all upstream lanes before a final synthesis agent.`,
-      `- Default subagent tools are read-only ['read', 'grep', 'find', 'ls']. Add 'bash', 'edit', 'write' only for side-effectful lanes.`,
-      '',
+      `- Default subagent tools are read-only ['read', 'grep', 'find', 'ls']; host tools may also be ambient when policy permits. Add 'bash', 'edit', 'write' only for side-effectful lanes.`,
+      "",
       `Domain language (use these terms when designing workflows):`,
       `- Subagent: an agent spawned inside a workflow via agent() or spawn().`,
       `- Stream: rough work-size for model routing — 'light', 'medium', or 'heavy'. Separate from thinkingLevel.`,
@@ -117,13 +119,13 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       `- Handoff: serialized data passed between workflow stages. Synchronous, returns string (inline or temp-file path).`,
       `- Phase: labelled progress section set via phase(title). Groups subagents in the UI.`,
       `- Lane: one parallel branch of work — a single function in a parallel() call.`,
-      `- Policy: frozen runtime config (defaultTools, maxConcurrency, modelsByStream).`,
-      '',
+      `- Policy: frozen runtime config (defaultTools, hostTools, maxConcurrency, modelsByStream).`,
+      "",
       `Minimal valid workflow (fan-out review pattern):`,
-      '```js',
+      "```js",
       WORKFLOW_MINIMAL_EXAMPLE,
-      '```',
-      '',
+      "```",
+      "",
       `Workflow documentation (read before writing a complex workflow):`,
       `- Main reference: ${docPath}`,
       `- Detailed docs: ${docsDir}/`,
@@ -162,7 +164,8 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           concurrency: options.concurrency,
           hardAbortGraceMs: options.hardAbortGraceMs,
           policy: params.policy,
-          extensionTools: options.extensionTools,
+          customTools: options.extensionTools,
+          hostToolNames: typeof options.hostToolNames === "function" ? options.hostToolNames() : options.hostToolNames,
           session: {
             modelRegistry: ctx.modelRegistry,
             model: ctx.model,

@@ -2,23 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createWorkflowTool } from "../src/workflow-tool.js";
 
-test("createWorkflowTool describes phases as optional and dynamic", () => {
+test("createWorkflowTool describes workflow rules and documentation", () => {
   const tool = createWorkflowTool();
 
-  assert.match(tool.promptSnippet ?? "", /export const meta = \{ name: 'short_snake_case', description:/);
+  assert.match(tool.promptSnippet ?? "", /export const meta = \{ name, description \}/);
   assert.doesNotMatch(tool.promptSnippet ?? "", /phases: \[/);
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("Prefer omitting meta.phases")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("never phases: ['Scan']")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("Phase names may be conditional or built in a loop")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("file ownership")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("spawn()")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("transcript path")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("[object Promise]")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("await handoff")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("read()")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("structured_output")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("validation gate")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("many subagents")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("Plain JavaScript only")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("parallel() takes functions")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("handoff() is synchronous")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("Do NOT embed backtick template literals")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("Minimal valid workflow")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("Workflow documentation")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("workflow-api.md")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("side-effects.md")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("Subagent:")));
 });
 
 test("createWorkflowTool accepts runtime policy arguments", () => {
@@ -32,6 +29,7 @@ test("createWorkflowTool accepts runtime policy arguments", () => {
       hardAbortGraceMs: 0,
       projectRoles: "allow",
       modelsByStream: { light: "provider/light-model" },
+      hostTools: ["glean_search"],
     },
   });
 
@@ -42,5 +40,6 @@ test("createWorkflowTool accepts runtime policy arguments", () => {
     projectRoles: "allow",
     modelsByStream: { light: "provider/light-model" },
     mailboxPauseTimeoutSeconds: undefined,
+    hostTools: ["glean_search"],
   });
 });

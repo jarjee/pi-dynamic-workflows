@@ -101,6 +101,7 @@ declare global {
 
   interface WorkflowPolicy {
     defaultTools?: string[];
+    hostTools?: "all" | "none" | string[];
     maxConcurrency?: number;
     hardAbortGraceMs?: number;
     projectRoles?: "deny" | "allow";

@@ -103,7 +103,12 @@ export async function runWorkflow<T = unknown>(
   const state: RuntimeState = { logs: [], phases: [], agentCount: 0, spent: 0 };
   const policy = normalizeWorkflowPolicy(options.policy);
   const agentRunner =
-    options.agent ?? new WorkflowAgent({ ...options, defaultTools: policy.defaultTools ?? options.defaultTools });
+    options.agent ??
+    new WorkflowAgent({
+      ...options,
+      defaultTools: policy.defaultTools ?? options.defaultTools,
+      hostToolPolicy: policy.hostTools,
+    });
   const concurrency = Math.max(
     1,
     Math.min(
@@ -295,10 +300,12 @@ export async function runWorkflow<T = unknown>(
             try {
               const result = await agentRunner.run(taskPrompt, {
                 label,
+                phase: assignedPhase,
+                stream: normalizedOptions.stream,
                 schema: normalizedOptions.schema,
                 model: normalizedOptions.model ?? modelForStream(normalizedOptions.stream, policy),
                 thinkingLevel: normalizedOptions.thinkingLevel,
-                tools: normalizedOptions.tools ?? policy.defaultTools,
+                tools: normalizedOptions.tools,
                 signal: attemptSignal.signal,
                 customTools: mailboxEnabled
                   ? createMailboxTools(

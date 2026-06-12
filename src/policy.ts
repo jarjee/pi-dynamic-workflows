@@ -1,9 +1,11 @@
 import type { ProjectRolePolicy } from "./roles.js";
 
 export type WorkflowStream = "light" | "medium" | "heavy";
+export type WorkflowHostToolPolicy = "all" | "none" | string[];
 
 export interface WorkflowPolicy {
   defaultTools?: string[];
+  hostTools?: WorkflowHostToolPolicy;
   maxConcurrency?: number;
   hardAbortGraceMs?: number;
   projectRoles?: ProjectRolePolicy;
@@ -17,6 +19,7 @@ export function normalizeWorkflowPolicy(value: unknown): WorkflowPolicy {
   const policy = value as WorkflowPolicy;
   return {
     defaultTools: optionalStringArray(policy.defaultTools, "policy.defaultTools"),
+    hostTools: optionalHostToolPolicy(policy.hostTools),
     maxConcurrency: optionalPositiveInteger(policy.maxConcurrency, "policy.maxConcurrency"),
     hardAbortGraceMs: optionalNonNegativeNumber(policy.hardAbortGraceMs, "policy.hardAbortGraceMs"),
     projectRoles: optionalProjectRolePolicy(policy.projectRoles),
@@ -35,6 +38,12 @@ function optionalStringArray(value: unknown, name: string): string[] | undefined
     if (typeof item !== "string") throw new TypeError(`${name}[${index}] must be a string`);
     return item;
   });
+}
+
+function optionalHostToolPolicy(value: unknown): WorkflowHostToolPolicy | undefined {
+  if (value === undefined) return undefined;
+  if (value === "all" || value === "none") return value;
+  return optionalStringArray(value, "policy.hostTools");
 }
 
 function optionalPositiveInteger(value: unknown, name: string): number | undefined {

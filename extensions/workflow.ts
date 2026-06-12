@@ -2,7 +2,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createWorkflowTool } from "../src/index.js";
 
 export default function extension(pi: ExtensionAPI) {
-  const workflowTool = createWorkflowTool();
+  const workflowTool = createWorkflowTool({
+    hostToolNames: () => pi.getActiveTools().filter((name) => name !== "workflow"),
+  });
   pi.registerTool(workflowTool);
 
   pi.on("session_start", () => {

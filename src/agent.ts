@@ -2,24 +2,25 @@ import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import {
   type CreateAgentSessionOptions,
   createAgentSession,
-  createCodingTools,
-  createReadOnlyTools,
   getAgentDir,
   SessionManager,
   SettingsManager,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { Static, TSchema } from "typebox";
+import type { WorkflowHostToolPolicy } from "./policy.js";
 import { createStructuredOutputTool, type StructuredOutputCapture } from "./structured-output.js";
 
 export interface WorkflowAgentOptions {
   cwd?: string;
   /** Built-in coding tools available when an agent call omits its own tools allowlist. */
   defaultTools?: string[];
+  /** Host extension tool names inherited from the parent Pi session (e.g. MCP/Glean). */
+  hostToolNames?: string[];
+  /** Controls which host tools are ambient when an agent omits its tools option. */
+  hostToolPolicy?: WorkflowHostToolPolicy;
   /** Additional custom tool definitions always available to subagents, separate from built-in coding tools. */
   customTools?: ToolDefinition[];
-  /** Extension tools from the pi host session (e.g. MCP tools). Merged into the built-in tool lookup table; built-in names win on collision. */
-  extensionTools?: ToolDefinition[];
   /** Override any createAgentSession option (model, authStorage, resourceLoader, etc.). */
   session?: Partial<CreateAgentSessionOptions>;
   /** Extra system guidance prepended to every subagent task. */
@@ -33,7 +34,7 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
   model?: string;
   /** Model thinking effort for this subagent. */
   thinkingLevel?: CreateAgentSessionOptions["thinkingLevel"];
-  /** Built-in coding tool allowlist for this subagent. Omit to use runtime defaults; [] exposes no coding tools. */
+  /** Built-in/host tool name allowlist for this subagent. Omit to use runtime defaults; [] exposes no ordinary tools. */
   tools?: string[];
   /** Extra custom tools for this subagent, in addition to selected built-ins. */
   customTools?: ToolDefinition[];
@@ -46,25 +47,28 @@ export type AgentRunResult<TSchemaDef extends TSchema | undefined> = TSchemaDef 
   : string;
 
 const DEFAULT_WORKFLOW_TOOLS = ["read", "grep", "find", "ls"];
+const BUILT_IN_TOOL_NAMES = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 
-function uniqueToolsByName(tools: ToolDefinition[]): ToolDefinition[] {
-  return [...new Map(tools.map((tool) => [tool.name, tool])).values()];
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 export class WorkflowAgent {
   private readonly cwd: string;
-  private readonly codingTools: ToolDefinition[];
+  private readonly hostToolNames: string[];
   private readonly customTools: ToolDefinition[];
-  private readonly defaultTools: string[];
+  private readonly defaultTools?: string[];
+  private readonly hostToolPolicy?: WorkflowHostToolPolicy;
   private readonly sessionOptions: Partial<CreateAgentSessionOptions>;
   private readonly instructions?: string;
   private readonly activeSessions = new Set<{ abort(): void; dispose(): void }>();
 
   constructor(options: WorkflowAgentOptions = {}) {
     this.cwd = options.cwd ?? process.cwd();
-    this.codingTools = uniqueToolsByName([...createCodingTools(this.cwd), ...createReadOnlyTools(this.cwd), ...(options.extensionTools ?? [])]);
+    this.hostToolNames = uniqueStrings(options.hostToolNames ?? []).filter((name) => !BUILT_IN_TOOL_NAMES.has(name));
     this.customTools = options.customTools ?? [];
-    this.defaultTools = options.defaultTools ?? DEFAULT_WORKFLOW_TOOLS;
+    this.defaultTools = options.defaultTools;
+    this.hostToolPolicy = options.hostToolPolicy;
     this.sessionOptions = options.session ?? {};
     this.instructions = options.instructions;
   }
@@ -74,15 +78,16 @@ export class WorkflowAgent {
     options: AgentRunOptions<TSchemaDef> = {},
   ): Promise<AgentRunResult<TSchemaDef>> {
     const capture: StructuredOutputCapture<any> = { called: false, value: undefined };
-    const customTools: ToolDefinition[] = [
-      ...this.selectCodingTools(options.tools ?? this.defaultTools),
-      ...this.customTools,
-      ...(options.customTools ?? []),
-    ];
+    const customTools: ToolDefinition[] = [...this.customTools, ...(options.customTools ?? [])];
 
     if (options.schema) {
       customTools.push(createStructuredOutputTool({ schema: options.schema, capture }) as unknown as ToolDefinition);
     }
+
+    const toolNames = uniqueStrings([
+      ...this.selectOrdinaryToolNames(options.tools),
+      ...customTools.map((tool) => tool.name),
+    ]);
 
     const agentDir = getAgentDir();
     const model = this.resolveModel(options.model);
@@ -91,11 +96,14 @@ export class WorkflowAgent {
       agentDir,
       sessionManager: SessionManager.inMemory(this.cwd),
       settingsManager: SettingsManager.create(this.cwd, agentDir),
+      tools: toolNames,
       customTools,
       ...this.sessionOptions,
       ...(model ? { model } : {}),
       ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
     });
+
+    this.assertRequestedToolsAvailable(toolNames, session.getActiveToolNames());
 
     let removeAbortListener: (() => void) | undefined;
     this.activeSessions.add(session);
@@ -147,15 +155,25 @@ export class WorkflowAgent {
     return model;
   }
 
-  private selectCodingTools(names: string[]): ToolDefinition[] {
-    const byName = new Map(this.codingTools.map((tool) => [tool.name, tool]));
-    const selected: ToolDefinition[] = [];
-    for (const name of names) {
-      const tool = byName.get(name);
-      if (!tool) throw new Error(`Unknown or unavailable workflow subagent tool: ${name}`);
-      selected.push(tool);
+  private selectOrdinaryToolNames(names: string[] | undefined): string[] {
+    if (names !== undefined) return names;
+    if (this.defaultTools !== undefined) return this.defaultTools;
+    return [...DEFAULT_WORKFLOW_TOOLS, ...this.selectAmbientHostToolNames()];
+  }
+
+  private selectAmbientHostToolNames(): string[] {
+    const policy = this.hostToolPolicy;
+    if (policy === "none") return [];
+    if (Array.isArray(policy)) return policy.filter((name) => this.hostToolNames.includes(name));
+    return this.hostToolNames;
+  }
+
+  private assertRequestedToolsAvailable(requested: string[], active: string[]): void {
+    const activeSet = new Set(active);
+    const missing = requested.filter((name) => !activeSet.has(name));
+    if (missing.length > 0) {
+      throw new Error(`Unknown or unavailable workflow subagent tool: ${missing.join(", ")}`);
     }
-    return selected;
   }
 
   private buildPrompt(prompt: string, options: AgentRunOptions<any>, structured: boolean): string {
