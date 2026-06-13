@@ -4,10 +4,11 @@ import type { ActiveWorkflow } from "./active-workflow.js";
 import type { WorkflowAgentSnapshot, WorkflowAgentStatus, WorkflowSnapshot } from "./display.js";
 
 interface InspectorRow {
-  type: "phase" | "agent" | "log" | "result";
+  type: "phase" | "agent" | "agent-detail" | "log" | "result";
   key: string;
   phase?: string;
   agent?: WorkflowAgentSnapshot;
+  detail?: { label: string; value: string };
 }
 
 export function createWorkflowInspector(
@@ -21,10 +22,11 @@ export function createWorkflowInspector(
 }
 
 class WorkflowInspector implements Component {
-  private static readonly MAX_VISIBLE_ROWS = 12;
+  private static readonly MAX_VISIBLE_ROWS = 18;
   private static readonly MAX_LOG_ROWS = 5;
 
   private selected = 0;
+  private selectedKey: string | undefined;
   private globalExpanded: boolean;
   private readonly phaseOverrides = new Map<string, boolean>();
   private readonly expandedAgents = new Set<number>();
@@ -39,7 +41,7 @@ class WorkflowInspector implements Component {
   ) {
     this.globalExpanded = getToolsExpanded();
     this.unsubscribe = workflow.subscribe(() => {
-      this.clampSelection();
+      this.restoreSelection();
       this.tui.requestRender();
     });
   }
@@ -53,33 +55,33 @@ class WorkflowInspector implements Component {
     if (this.keybindings.matches(data, "app.tools.expand")) {
       this.globalExpanded = !this.globalExpanded;
       this.phaseOverrides.clear();
-      this.clampSelection();
+      this.restoreSelection();
       this.tui.requestRender();
       return;
     }
 
     if (matchesKey(data, "up")) {
-      this.selected = Math.max(0, this.selected - 1);
+      this.moveSelection(-1);
       return;
     }
     if (matchesKey(data, "down")) {
-      this.selected = Math.min(this.rows().length - 1, this.selected + 1);
+      this.moveSelection(1);
       return;
     }
     if (matchesKey(data, "pageUp")) {
-      this.selected = Math.max(0, this.selected - WorkflowInspector.MAX_VISIBLE_ROWS);
+      this.pageSelection(-1);
       return;
     }
     if (matchesKey(data, "pageDown")) {
-      this.selected = Math.min(this.rows().length - 1, this.selected + WorkflowInspector.MAX_VISIBLE_ROWS);
+      this.pageSelection(1);
       return;
     }
     if (matchesKey(data, "home")) {
-      this.selected = 0;
+      this.selectFirst();
       return;
     }
     if (matchesKey(data, "end")) {
-      this.selected = Math.max(0, this.rows().length - 1);
+      this.selectLast();
       return;
     }
 
@@ -112,8 +114,9 @@ class WorkflowInspector implements Component {
     const left = Math.floor(borderWidth / 2);
     const right = borderWidth - left;
     lines.push(`╭${"─".repeat(left)}${title}${"─".repeat(right)}╮`);
-    lines.push(row(headerText(snapshot)));
-    lines.push(row(snapshot.description ?? ""));
+    lines.push(row(`name: ${snapshot.name}`));
+    lines.push(row(headerStatus(snapshot)));
+    if (snapshot.description) lines.push(row(snapshot.description));
     lines.push(border("├", "─", "┤"));
 
     const rows = this.rows();
@@ -127,18 +130,13 @@ class WorkflowInspector implements Component {
       }
     }
     while (lines.length < 5 + WorkflowInspector.MAX_VISIBLE_ROWS) lines.push(row());
-    if (rows.length > WorkflowInspector.MAX_VISIBLE_ROWS) {
-      const first = (visibleRows[0]?.index ?? 0) + 1;
-      const last = (visibleRows.at(-1)?.index ?? 0) + 1;
-      lines.push(row(`Showing ${first}-${last} of ${rows.length}`));
-    } else {
-      lines.push(row());
-    }
 
-    lines.push(border("├", "─", "┤"));
-    lines.push(row("Recent logs"));
-    for (const log of snapshot.logs.slice(-WorkflowInspector.MAX_LOG_ROWS)) lines.push(row(`  ${log}`));
-    while (lines.length < 8 + WorkflowInspector.MAX_VISIBLE_ROWS + WorkflowInspector.MAX_LOG_ROWS) lines.push(row());
+    const recentLogs = snapshot.logs.slice(-WorkflowInspector.MAX_LOG_ROWS);
+    if (recentLogs.length > 0) {
+      lines.push(border("├", "─", "┤"));
+      lines.push(row("Recent logs"));
+      for (const log of recentLogs) lines.push(row(`  ${log}`));
+    }
 
     lines.push(border("├", "─", "┤"));
     lines.push(row("↑↓/pg select • space/enter toggle • ←/→ collapse/expand • ctrl+o global • esc close"));
@@ -183,21 +181,12 @@ class WorkflowInspector implements Component {
     if (row.type === "agent" && row.agent) {
       const agent = row.agent;
       const expanded = this.expandedAgents.has(agent.id);
-      const detail = expanded
-        ? ""
-        : agent.resultPreview
-          ? ` — ${agent.resultPreview}`
-          : agent.error
-            ? ` — ${agent.error}`
-            : "";
-      let text = `${prefix}  ${expanded ? "▾" : "▸"} #${agent.id} ${statusIcon(agent.status)} ${agent.label}${detail}`;
-      if (expanded) {
-        const bits = [`status: ${agent.status}`];
-        if (agent.error) bits.push(`error: ${agent.error}`);
-        if (agent.resultPreview) bits.push(`result: ${agent.resultPreview}`);
-        text += ` — ${bits.join(" · ")}`;
-      }
-      return text;
+      const detail = !expanded && agent.resultPreview ? ` — ${agent.resultPreview}` : !expanded && agent.error ? ` — ${agent.error}` : "";
+      return `${prefix}  ${expanded ? "▾" : "▸"} #${agent.id} ${statusIcon(agent.status)} ${agent.label}${detail}`;
+    }
+
+    if (row.type === "agent-detail" && row.detail) {
+      return `${prefix}    ${row.detail.label}: ${row.detail.value}`;
     }
 
     return `${prefix}${row.key}`;
@@ -211,7 +200,7 @@ class WorkflowInspector implements Component {
       if (agents.length === 0 && snapshot.currentPhase !== phase) continue;
       rows.push({ type: "phase", key: `phase:${phase}`, phase });
       if (this.isPhaseExpanded(phase)) {
-        for (const agent of agents) rows.push({ type: "agent", key: `agent:${agent.id}`, phase, agent });
+        for (const agent of agents) this.pushAgentRows(rows, phase, agent);
       }
     }
 
@@ -221,26 +210,44 @@ class WorkflowInspector implements Component {
       const phase = "Unphased";
       rows.push({ type: "phase", key: "phase:Unphased", phase });
       if (this.isPhaseExpanded(phase)) {
-        for (const agent of unphased) rows.push({ type: "agent", key: `agent:${agent.id}`, phase, agent });
+        for (const agent of unphased) this.pushAgentRows(rows, phase, agent);
       }
     }
     return rows;
   }
 
+  private pushAgentRows(rows: InspectorRow[], phase: string, agent: WorkflowAgentSnapshot): void {
+    rows.push({ type: "agent", key: `agent:${agent.id}`, phase, agent });
+    if (!this.expandedAgents.has(agent.id)) return;
+
+    rows.push({ type: "agent-detail", key: `agent:${agent.id}:status`, phase, agent, detail: { label: "status", value: agent.status } });
+    if (agent.model) {
+      rows.push({ type: "agent-detail", key: `agent:${agent.id}:model`, phase, agent, detail: { label: "model", value: agent.model } });
+    }
+    if (agent.error) {
+      rows.push({ type: "agent-detail", key: `agent:${agent.id}:error`, phase, agent, detail: { label: "error", value: agent.error } });
+    }
+    if (agent.resultPreview) {
+      rows.push({ type: "agent-detail", key: `agent:${agent.id}:result`, phase, agent, detail: { label: "result", value: agent.resultPreview } });
+    }
+  }
+
   private toggle(row: InspectorRow): void {
     if (row.type === "phase" && row.phase) {
       this.setPhaseExpanded(row.phase, !this.isPhaseExpanded(row.phase));
-    } else if (row.type === "agent" && row.agent) {
+    } else if ((row.type === "agent" || row.type === "agent-detail") && row.agent) {
       if (this.expandedAgents.has(row.agent.id)) this.expandedAgents.delete(row.agent.id);
       else this.expandedAgents.add(row.agent.id);
+      this.restoreSelection();
     }
   }
 
   private setExpanded(row: InspectorRow, expanded: boolean): void {
     if (row.type === "phase" && row.phase) this.setPhaseExpanded(row.phase, expanded);
-    else if (row.type === "agent" && row.agent) {
+    else if ((row.type === "agent" || row.type === "agent-detail") && row.agent) {
       if (expanded) this.expandedAgents.add(row.agent.id);
       else this.expandedAgents.delete(row.agent.id);
+      this.restoreSelection();
     }
   }
 
@@ -251,15 +258,91 @@ class WorkflowInspector implements Component {
   private setPhaseExpanded(phase: string, expanded: boolean): void {
     if (expanded === this.globalExpanded) this.phaseOverrides.delete(phase);
     else this.phaseOverrides.set(phase, expanded);
-    this.clampSelection();
+    this.restoreSelection();
   }
 
-  private clampSelection(): void {
-    this.selected = Math.min(this.selected, Math.max(0, this.rows().length - 1));
+  private moveSelection(delta: -1 | 1): void {
+    const rows = this.rows();
+    let index = this.selected;
+    while (true) {
+      index += delta;
+      if (index < 0 || index >= rows.length) return;
+      if (isSelectable(rows[index])) {
+        this.selectIndex(index, rows);
+        return;
+      }
+    }
+  }
+
+  private pageSelection(delta: -1 | 1): void {
+    const rows = this.rows();
+    const selectable = rows.map((row, index) => ({ row, index })).filter(({ row }) => isSelectable(row));
+    if (selectable.length === 0) return;
+    const current = Math.max(0, selectable.findIndex(({ index }) => index === this.selected));
+    const next = Math.max(0, Math.min(selectable.length - 1, current + delta * WorkflowInspector.MAX_VISIBLE_ROWS));
+    this.selectIndex(selectable[next].index, rows);
+  }
+
+  private selectFirst(): void {
+    const rows = this.rows();
+    const index = rows.findIndex(isSelectable);
+    if (index >= 0) this.selectIndex(index, rows);
+  }
+
+  private selectLast(): void {
+    const rows = this.rows();
+    for (let index = rows.length - 1; index >= 0; index--) {
+      if (isSelectable(rows[index])) {
+        this.selectIndex(index, rows);
+        return;
+      }
+    }
+  }
+
+  private restoreSelection(): void {
+    const rows = this.rows();
+    if (rows.length === 0) {
+      this.selected = 0;
+      this.selectedKey = undefined;
+      return;
+    }
+
+    if (this.selectedKey) {
+      const byKey = rows.findIndex((row) => row.key === this.selectedKey && isSelectable(row));
+      if (byKey >= 0) {
+        this.selectIndex(byKey, rows);
+        return;
+      }
+    }
+
+    const clamped = Math.max(0, Math.min(this.selected, rows.length - 1));
+    for (let index = clamped; index >= 0; index--) {
+      if (isSelectable(rows[index])) {
+        this.selectIndex(index, rows);
+        return;
+      }
+    }
+    for (let index = clamped + 1; index < rows.length; index++) {
+      if (isSelectable(rows[index])) {
+        this.selectIndex(index, rows);
+        return;
+      }
+    }
+    this.selected = 0;
+    this.selectedKey = undefined;
+  }
+
+  private selectIndex(index: number, rows = this.rows()): void {
+    this.selected = index;
+    this.selectedKey = rows[index]?.key;
   }
 }
 
-function headerText(snapshot: WorkflowSnapshot): string {
+function isSelectable(row: InspectorRow | undefined): row is InspectorRow {
+  return row?.type === "phase" || row?.type === "agent";
+}
+
+function headerStatus(snapshot: WorkflowSnapshot): string {
   const state =
     snapshot.errorCount > 0
       ? `${snapshot.errorCount} errors`
@@ -267,7 +350,7 @@ function headerText(snapshot: WorkflowSnapshot): string {
         ? `${snapshot.runningCount} running`
         : "idle";
   const duration = snapshot.durationMs === undefined ? "" : ` · ${(snapshot.durationMs / 1000).toFixed(1)}s`;
-  return `${snapshot.name}: ${snapshot.doneCount}/${snapshot.agentCount} done · ${state}${duration}`;
+  return `status: ${snapshot.doneCount}/${snapshot.agentCount} done · ${state}${duration}`;
 }
 
 function phaseNames(snapshot: WorkflowSnapshot): string[] {
