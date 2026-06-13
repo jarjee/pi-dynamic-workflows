@@ -14,8 +14,8 @@
     },
     {
       "name": "spawn_mailbox_used",
-      "description": "Uses spawn() with mailbox for team coordination",
-      "pass_condition": "Script includes spawn(... , { mailbox: true }) and mailbox.connect()."
+      "description": "Uses spawn() with mailbox for bounded team coordination",
+      "pass_condition": "Script includes spawn(... , { mailbox: true }), mailbox.connect(), and supervisor-seeded mailbox.send(...) messages to the spawned agents so the team does not rely on a circular wait or peer acknowledgement loop."
     },
     {
       "name": "structured_output_used",

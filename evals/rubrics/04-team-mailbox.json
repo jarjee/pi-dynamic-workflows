@@ -14,8 +14,8 @@
     },
     {
       "name": "mailbox_wiring",
-      "description": "Communication channels wired with mailbox.connect or mailbox.allow",
-      "pass_condition": "Script calls mailbox.connect() or mailbox.allow() between spawned agents."
+      "description": "Communication channels are wired and the initial message is supervisor-seeded",
+      "pass_condition": "Script calls mailbox.connect() or mailbox.allow() between spawned agents, and uses mailbox.send(...) from the workflow supervisor to seed at least one initial message."
     },
     {
       "name": "all_handles_awaited",
