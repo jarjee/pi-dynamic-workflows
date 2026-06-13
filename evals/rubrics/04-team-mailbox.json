@@ -1,6 +1,6 @@
 {
   "eval": "04-team-mailbox",
-  "description": "LLM creates a spawn+mailbox team with architect/workers and directed communication",
+  "description": "LLM creates a bounded spawn+mailbox team with architect/worker and directed communication",
   "criteria": [
     {
       "name": "uses_spawn_not_agent",
@@ -34,8 +34,8 @@
     },
     {
       "name": "sensible_team_result",
-      "description": "The team produced a coherent result (design + implementation)",
-      "pass_condition": "Result references the Task data model and implementation. Synthesis phase confirms coordination."
+      "description": "The team produced a coherent result (contract + worker acknowledgement/plan)",
+      "pass_condition": "Result references the Task data model contract and the worker's acknowledgement or implementation plan. Synthesis phase confirms coordination."
     }
   ]
 }
