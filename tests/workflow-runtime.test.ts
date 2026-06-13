@@ -7,7 +7,7 @@ import { WorkflowAgent } from "../src/agent.js";
 import { runWorkflow } from "../src/workflow.js";
 
 const fakeAgent = {
-  async run(prompt: string): Promise<string> {
+  async run(prompt: string, _opts?: Record<string, unknown>): Promise<string> {
     return `result:${prompt}`;
   },
 };
@@ -728,6 +728,7 @@ return { scan }
   );
 
   assert.deepEqual(result.phases, ["Scan"]);
+  // Synthesize phase still runs (1 agent call)
   assert.equal(result.agentCount, 1);
   assert.equal((result.result as { scan: string }).scan, "result:scan");
 });
@@ -808,6 +809,95 @@ return { ok: true }
   );
 });
 
+// ── registerPhase ──
+
+test("registerPhase executes a single phase and returns its output", async () => {
+  const result = await runWorkflow(
+    'export const meta = { name: "single_phase", description: "One phase only" }\n' +
+      "\n" +
+      'registerPhase("Scan", async () => {\n' +
+      '  return await agent("scan the codebase", { label: "scan" })\n' +
+      "})\n",
+    { agent: fakeAgent },
+  );
+
+  // Synthesize phase still runs (1 agent call)
+  assert.equal(result.agentCount, 1);
+  assert.deepEqual(result.phases, ["Scan"]);
+  assert.ok((result.result as string).includes("scan the codebase"));
+});
+
+test("registerPhase with gate — gate passes, output flows normally", async () => {
+  const result = await runWorkflow(
+    'export const meta = { name: "gated_pass", description: "Phase with passing gate" }\n' +
+      "\n" +
+      'registerPhase("Implement", async () => {\n' +
+      '  return await agent("implement feature", { label: "impl" })\n' +
+      "}, {\n" +
+      "  gate: async (output) => {\n" +
+      "    return null\n" +
+      "  },\n" +
+      "})\n" +
+      "\n" +
+      'registerPhase("Synthesize", async (input) => {\n' +
+      '  return await agent("synth: " + input, { label: "synth" })\n' +
+      "})\n",
+    { agent: fakeAgent },
+  );
+
+  assert.equal(result.agentCount, 2);
+  assert.deepEqual(result.phases, ["Implement", "Synthesize"]);
+  assert.ok((result.result as string).includes("implement feature"), "output contains phase body result");
+  assert.ok((result.result as string).includes("synth:"), "output contains downstream phase");
+});
+
+test("registerPhase with gate — gate fails once, body retries, then passes", async () => {
+  const gatedResult = await runWorkflow(
+    'export const meta = { name: "retry_gated", description: "Phase with retry on gate failure" }\n' +
+      "\n" +
+      "let gateAttempt = 0\n" +
+      "\n" +
+      'registerPhase("Implement", async () => {\n' +
+      '  return await agent("implement feature", { label: "impl" })\n' +
+      "}, {\n" +
+      "  gate: async (output) => {\n" +
+      "    gateAttempt++\n" +
+      '    if (gateAttempt === 1) return "tests failed: expected X got Y"\n' +
+      "    return null\n" +
+      "  },\n" +
+      "  maxIterations: 3,\n" +
+      "})\n",
+    { agent: fakeAgent },
+  );
+
+  // Gate failed on attempt 1, body retried, gate passed on attempt 2
+  // Body ran twice → 2 agent calls
+  assert.equal(gatedResult.agentCount, 2);
+  assert.deepEqual(gatedResult.phases, ["Implement"]);
+  assert.ok((gatedResult.result as string).includes("implement feature"), "output contains body result");
+});
+
+test("registerPhase with gate — exhausted retries adds __phaseMeta", async () => {
+  const exhaustedResult = await runWorkflow(
+    'export const meta = { name: "exhausted_gate", description: "Gate never passes" }\n' +
+      "\n" +
+      'registerPhase("Implement", async () => {\n' +
+      '  return await agent("implement", { label: "impl" })\n' +
+      "}, {\n" +
+      '  gate: async (output) => "always fails",\n' +
+      "  maxIterations: 2,\n" +
+      "})\n",
+    { agent: fakeAgent },
+  );
+
+  // Both attempts failed gate → exhausted
+  const output = exhaustedResult.result as Record<string, unknown>;
+  assert.equal(typeof output.__phaseMeta, "object");
+  assert.equal((output.__phaseMeta as Record<string, unknown>).exhausted, true);
+  assert.ok((output.value as string).includes("implement"), "output contains body result");
+  assert.equal(exhaustedResult.agentCount, 2); // impl x2
+});
+
 test("runWorkflow allows prompts that mention nondeterministic API names", async () => {
   const result = await runWorkflow(
     `export const meta = {
@@ -826,4 +916,73 @@ return { scan }
     (result.result as { scan: string }).scan,
     "result:Catalog Date.now(), Math.random(), and new Date() usage",
   );
+});
+
+test("registerPhase skipIf skips the phase when condition true", async () => {
+  const result = await runWorkflow(
+    'export const meta = { name: "skip", description: "Skip" }\n' +
+      "\n" +
+      'registerPhase("Scan", async () => {\n' +
+      "  return { shouldSkip: true }\n" +
+      "})\n" +
+      "\n" +
+      'registerPhase("Conditional", async (input) => {\n' +
+      '  return await agent("conditional", { label: "cond" })\n' +
+      "}, {\n" +
+      "  skipIf: (input) => input.shouldSkip === true,\n" +
+      "})\n" +
+      "\n" +
+      'registerPhase("Synthesize", async (input) => {\n' +
+      '  return await agent("synth", { label: "synth" })\n' +
+      "})\n",
+    { agent: fakeAgent },
+  );
+
+  // Synthesize phase still runs (1 agent call)
+  assert.equal(result.agentCount, 1);
+  assert.deepEqual(result.phases, ["Scan", "Conditional", "Synthesize"]);
+});
+
+test("registerPhase wraps body subagent prompts with <iteration> context on retry", async () => {
+  const prompts: string[] = [];
+  const recordingAgent = {
+    async run(prompt: string, _opts?: Record<string, unknown>): Promise<string> {
+      prompts.push(prompt);
+      return `result:${prompt}`;
+    },
+  };
+
+  await runWorkflow(
+    'export const meta = { name: "iter_wrap", description: "Iteration wrapping test" }\n' +
+      "\n" +
+      "let gateCall = 0\n" +
+      "\n" +
+      'registerPhase("Implement", async () => {\n' +
+      '  return await agent("write code and run tests", { label: "impl" })\n' +
+      "}, {\n" +
+      "  gate: async (output) => {\n" +
+      "    gateCall++\n" +
+      '    if (gateCall === 1) return "FAIL: expected X got Y"\n' +
+      "    return null\n" +
+      "  },\n" +
+      "  maxIterations: 3,\n" +
+      "})\n",
+    { agent: recordingAgent },
+  );
+
+  // First call: no retry context, just iteration wrapper
+  assert.ok(prompts.length >= 2, "should have at least 2 prompts");
+  const first = prompts[0];
+  assert.ok(first.includes("<iteration:0/3>"), "first prompt should have <iteration:0/3>");
+  assert.ok(first.includes("write code and run tests"), "original prompt preserved");
+  assert.ok(first.includes("</iteration>"), "iteration tag closed");
+  assert.ok(!first.includes("<retry>"), "first prompt should NOT have retry context");
+
+  // Second call: retry context with failure
+  const second = prompts[1];
+  assert.ok(second.includes("<iteration:1/3>"), "second prompt should have <iteration:1/3>");
+  assert.ok(second.includes("<retry>"), "second prompt should have <retry> block");
+  assert.ok(second.includes("FAIL: expected X got Y"), "retry block contains gate failure");
+  assert.ok(second.includes("</retry>"), "retry tag closed");
+  assert.ok(second.includes("write code and run tests"), "original prompt preserved on retry");
 });

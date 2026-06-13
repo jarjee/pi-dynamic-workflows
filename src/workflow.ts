@@ -442,7 +442,55 @@ export async function runWorkflow<T = unknown>(
     );
   };
 
+  // registerPhase: collect phases synchronously, execute in order
+  const phaseDescriptors: Array<{
+    name: string;
+    body: (input: unknown) => Promise<unknown>;
+    options?: {
+      gate?: (output: unknown, upstreamOutput: unknown) => Promise<string | null>;
+      maxIterations?: number;
+      skipIf?: (input: unknown) => boolean;
+    };
+  }> = [];
+
+  const registerPhase = (name: unknown, body: unknown, options?: unknown) => {
+    const phaseName = requireString(name, "registerPhase name");
+    if (typeof body !== "function") throw new TypeError("registerPhase body must be a function");
+    if (options !== undefined && (typeof options !== "object" || options === null)) {
+      throw new TypeError("registerPhase options must be an object");
+    }
+    const opts = (options ?? {}) as Record<string, unknown>;
+    if (opts.gate !== undefined && typeof opts.gate !== "function") {
+      throw new TypeError("registerPhase options.gate must be a function");
+    }
+    if (opts.maxIterations !== undefined) {
+      if (
+        typeof opts.maxIterations !== "number" ||
+        !Number.isInteger(opts.maxIterations) ||
+        (opts.maxIterations as number) < 1
+      ) {
+        throw new TypeError("registerPhase options.maxIterations must be a positive integer");
+      }
+    }
+    if (opts.skipIf !== undefined && typeof opts.skipIf !== "function") {
+      throw new TypeError("registerPhase options.skipIf must be a function");
+    }
+    phaseDescriptors.push({
+      name: phaseName,
+      body: body as (input: unknown) => Promise<unknown>,
+      options:
+        opts.gate || opts.maxIterations || opts.skipIf
+          ? {
+              gate: opts.gate as ((output: unknown, upstreamOutput: unknown) => Promise<string | null>) | undefined,
+              maxIterations: opts.maxIterations as number | undefined,
+              skipIf: opts.skipIf as ((input: unknown) => boolean) | undefined,
+            }
+          : undefined,
+    });
+  };
+
   const context = vm.createContext({
+    registerPhase,
     agent,
     spawn,
     parallel,
@@ -480,7 +528,100 @@ export async function runWorkflow<T = unknown>(
       new vm.Script(wrapped, { filename: `${meta.name || "workflow"}.js` }).runInContext(context),
     );
     scriptRun.catch(() => undefined);
-    const result = await Promise.race([scriptRun, abortPromise(options.signal)]);
+    const scriptResult = await Promise.race([scriptRun, abortPromise(options.signal)]);
+
+    // Execute registered phases
+    let result = scriptResult;
+    if (phaseDescriptors.length > 0) {
+      let input: unknown = scriptResult;
+      for (const descriptor of phaseDescriptors) {
+        phase(descriptor.name);
+        const opts = descriptor.options;
+
+        // skipIf
+        if (opts?.skipIf?.(input)) {
+          continue;
+        }
+
+        // Execute body (with gateway loop)
+        const maxIts = opts?.maxIterations ?? (opts?.gate ? 3 : 1);
+        let lastOutput: unknown;
+        let exhausted = false;
+        let gateError: string | undefined;
+
+        // Wrap agent/spawn for this phase to inject iteration context
+        const originalAgent = agent;
+        const originalSpawn = spawn;
+        let currentIteration = 0;
+        let currentGateError: string | undefined;
+        const wrapPrompt = (prompt: string) => {
+          const lines = [`<iteration:${currentIteration}/${maxIts}>`, prompt];
+          if (currentGateError) {
+            lines.push("<retry>Gate check failed and the phase is retrying. Fix the issues below:");
+            lines.push(currentGateError);
+            lines.push("</retry>");
+          }
+          lines.push("</iteration>");
+          return lines.join("\n");
+        };
+        const wrappedAgentFn = async (p: unknown, o: unknown = {}) => {
+          let prompt = requireString(p, "agent prompt");
+          rejectAccidentalPromiseText(prompt, "agent prompt");
+          prompt = wrapPrompt(prompt);
+          // We can't use originalAgent here because it takes (prompt, options),
+          // but the underlying spawnInternal does the real work.
+          return spawnInternal(prompt, o, false).result;
+        };
+        const wrappedSpawnFn = (p: unknown, o: unknown = {}) => {
+          let prompt = requireString(p, "agent prompt");
+          rejectAccidentalPromiseText(prompt, "agent prompt");
+          prompt = wrapPrompt(prompt);
+          return spawnInternal(prompt, o, true);
+        };
+        // Shadow agent/spawn in context during phase execution
+        context.agent = wrappedAgentFn;
+        context.spawn = wrappedSpawnFn;
+
+        for (let iteration = 0; iteration < maxIts; iteration++) {
+          currentIteration = iteration;
+          currentGateError = gateError;
+          lastOutput = await descriptor.body(input);
+
+          // Run gate
+          if (opts?.gate) {
+            const gateResult = await opts.gate(lastOutput, input);
+            if (gateResult === null) {
+              exhausted = false;
+              break; // gate passed
+            }
+            gateError = gateResult;
+            // gate failed — loop to next iteration
+            if (iteration === maxIts - 1) {
+              exhausted = true;
+            }
+          } else {
+            break; // no gate, done
+          }
+        }
+
+        // Restore original agent/spawn
+        context.agent = originalAgent;
+        context.spawn = originalSpawn;
+
+        if (exhausted) {
+          lastOutput = {
+            ...(typeof lastOutput === "object" && lastOutput !== null
+              ? (lastOutput as Record<string, unknown>)
+              : { value: lastOutput }),
+            __phaseMeta: { exhausted: true, iteration: maxIts, gateError },
+          };
+        }
+
+        input = lastOutput;
+        result = lastOutput;
+      }
+    }
+
     const leaked = spawnedHandles.filter((handle) => !isTerminalAgentStatus(handle.status()));
     if (leaked.length > 0) {
       agentRunner.abortAll?.("Workflow returned with active spawned agents");
