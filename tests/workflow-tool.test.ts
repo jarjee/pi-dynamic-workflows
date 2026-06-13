@@ -6,16 +6,17 @@ test("createWorkflowTool describes workflow rules and documentation", () => {
   const tool = createWorkflowTool();
 
   assert.match(tool.promptSnippet ?? "", /export const meta = \{ name, description \}/);
-  assert.doesNotMatch(tool.promptSnippet ?? "", /phases: \[/);
+  assert.match(tool.promptSnippet ?? "", /registerPhase/);
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("Plain JavaScript only")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("parallel() takes functions")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("handoff() is synchronous")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("handoff()")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("Do NOT embed backtick template literals")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("Minimal valid workflow")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("Workflow documentation")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("workflow-api.md")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("side-effects.md")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("Workflow with gate")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("Advanced reference")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("register-phase-dsl.md")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("Subagent:")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("Model:")));
 });
 
 test("createWorkflowTool accepts runtime policy arguments", () => {
