@@ -12,9 +12,9 @@ _Avoid_: workflow run, orchestration
 An agent spawned within a workflow via `agent()` (awaited) or `spawn()` (handle-returning). Subagents receive their own tools and can communicate via mailbox.
 _Avoid_: child agent, worker, task
 
-**Stream**:
-A rough work-size classification used for model routing: `light`, `medium`, or `heavy`. Mapped to concrete models by runtime `policy.modelsByStream`. Separate from thinking effort.
-_Avoid_: effort, tier, size
+**Weight**:
+A model-routing size classification for subagent calls: `light`, `medium`, or `heavy`. Mapped to concrete models by runtime `policy.modelsByWeight` (or legacy `policy.modelsByStream`). Separate from thinking effort.
+_Avoid_: stream, effort, tier
 
 **Mailbox**:
 A communication channel between spawned subagents. Exposed to subagents as `mailbox_peers`, `mailbox_send`, and `mailbox_pause` tools. The workflow supervisor configures channels via `mailbox.allow()`, `mailbox.connect()`, and `mailbox.send()`.
@@ -37,13 +37,13 @@ A parallel branch of work — one function in a `parallel()` call. Each lane run
 _Avoid_: branch, thread, fork
 
 **Policy**:
-A frozen runtime configuration object exposed to workflow scripts. Controls `defaultTools`, `maxConcurrency`, `modelsByStream`, `projectRoles`, and `hardAbortGraceMs`.
+A frozen runtime policy object exposed to workflow scripts. Controls `defaultTools`, `maxConcurrency`, `modelsByWeight` / legacy `modelsByStream`, `projectRoles`, and `hardAbortGraceMs`.
 _Avoid_: config, settings
 
 ## Architecture Decisions
 
 Documented in [docs/adr/](docs/adr/):
 
-- [0001: Runtime policy and stream-based model routing](docs/adr/0001-runtime-policy-and-stream-routing.md)
+- [0001: Runtime policy and weight-based model routing](docs/adr/0001-runtime-policy-and-stream-routing.md)
 - [0002: Communicating workflow agents with runtime mailboxes](docs/adr/0002-communicating-workflow-agents.md)
-- [0003: Side-effectful workflows require ownership and validation guidance](docs/adr/0003-side-effectful-workflow-validation-guidance.md)
+- [0003: Side-effectful workflows require ownership and validation guidance](docs/adr/0003-side-effectful-workflow-validation.md)

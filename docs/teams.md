@@ -4,12 +4,12 @@ How to plan and coordinate teams of communicating agents. For basic workflow usa
 
 ## When to use a team
 
-A **team** is a fan-out → fan-in cycle where agents work in parallel and results converge. A **workflow** chains multiple team cycles with gates between them.
+A **team** is a set of subagents communicating through mailbox, coordinated by the workflow supervisor. Use ordinary **lanes** for plain fan-out/fan-in work that does not need mailbox communication.
 
 Teams add coordination overhead. Gate whether the work justifies it:
 
 **Good fit** (multiple must apply):
-- Multiple independent work streams exist
+- Multiple independent lanes exist
 - Different files/modules can be owned by different agents
 - Multiple areas of expertise are needed
 - Work can meaningfully proceed in parallel
@@ -25,12 +25,12 @@ Teams add coordination overhead. Gate whether the work justifies it:
 
 Before writing a workflow script, identify:
 
-1. **Work streams** — What are the distinct, parallelizable pieces?
-2. **Expertise** — Does each stream need a different knowledge domain?
+1. **Lanes** — What are the distinct, parallelizable pieces?
+2. **Expertise** — Does each lane need a different knowledge domain?
 3. **File ownership** — Which files/directories does each agent own? Ownership must not overlap for write-capable agents.
 4. **Dependencies** — Which agents need information from others before they can start or continue?
 5. **Communication** — Do agents need to coordinate at runtime (mailbox), or just fan out and converge (parallel)?
-6. **Complexity** — Which streams need heavy models (architecture, synthesis) vs light/medium (implementation, scanning)?
+6. **Complexity** — Which lanes need heavy model weights (architecture, synthesis) vs light/medium (implementation, scanning)?
 
 ### Sizing guidelines
 
@@ -113,12 +113,12 @@ Independent agents work in parallel, results converge through a synthesis agent.
 ```js
 phase('Investigate')
 const findings = await parallel(hypotheses.map(h => () =>
-  agent(`Investigate: ${h}`, { label: h.slice(0, 30), stream: 'medium' })
+  agent(`Investigate: ${h}`, { label: h.slice(0, 30), weight: 'medium' })
 ))
 
 phase('Synthesize')
 const ref = handoff(findings.filter(Boolean))
-return await agent(`Synthesize findings:\n${ref}`, { label: 'synthesis', stream: 'heavy' })
+return await agent(`Synthesize findings:\n${ref}`, { label: 'synthesis', weight: 'heavy' })
 ```
 
 **When to use:** Code review, research, debugging hypotheses, audit. Each agent works independently on a different aspect or theory.
@@ -129,12 +129,12 @@ An architect agent designs the contract/interface, then workers implement agains
 
 ```js
 const architect = spawn('Design the data model. Send the schema to peers when done.', {
-  label: 'architect', mailbox: true, tools: ['read', 'write'], stream: 'heavy',
+  label: 'architect', mailbox: true, tools: ['read', 'write'], weight: 'heavy',
 })
 
 const workers = modules.map(mod =>
   spawn(`Wait for the architect's schema, then implement ${mod.name}. You own ${mod.dir}.`, {
-    label: `impl ${mod.name}`, mailbox: true, tools: ['read', 'edit', 'write'], stream: 'medium',
+    label: `impl ${mod.name}`, mailbox: true, tools: ['read', 'edit', 'write'], weight: 'medium',
   })
 )
 
@@ -154,26 +154,26 @@ An architect designs interfaces, a test agent writes tests from the spec, an imp
 const architect = spawn(
   `Design the interface for ${feature}. Write types to ${typesDir}.
    Send the contract and behavior description to all peers when ready.`, {
-  label: 'architect', mailbox: true, tools: ['read', 'write'], stream: 'heavy',
+  label: 'architect', mailbox: true, tools: ['read', 'write'], weight: 'heavy',
 })
 
 const tester = spawn(
   `Wait for the architect's contract. Write tests to ${testsDir} based on the interface and
    expected behavior. When the implementer notifies you, run the tests and report results.
    You own ${testsDir}.`, {
-  label: 'tester', mailbox: true, tools: ['read', 'write', 'bash'], stream: 'medium',
+  label: 'tester', mailbox: true, tools: ['read', 'write', 'bash'], weight: 'medium',
 })
 
 const implementer = spawn(
   `Wait for the architect's contract. Implement in ${implDir}.
    When done, notify the tester via mailbox_send. You own ${implDir}.`, {
-  label: 'implementer', mailbox: true, tools: ['read', 'write', 'edit'], stream: 'medium',
+  label: 'implementer', mailbox: true, tools: ['read', 'write', 'edit'], weight: 'medium',
 })
 
 const qa = spawn(
   `Review the architect's design for gaps and ambiguity. Once the implementation is ready,
    review code quality, error handling, and edge cases. Read-only — do not edit files.`, {
-  label: 'qa', mailbox: true, tools: ['read', 'grep', 'find'], stream: 'heavy',
+  label: 'qa', mailbox: true, tools: ['read', 'grep', 'find'], weight: 'heavy',
 })
 
 // Wire channels: architect broadcasts, implementer notifies tester, QA observes all
@@ -209,7 +209,7 @@ phase('Investigate')
 const findings = await parallel(hypotheses.map(h => () =>
   agent(`Investigate this hypothesis: ${h}\nGather evidence for AND against.`, {
     label: h.slice(0, 40),
-    stream: 'medium',
+    weight: 'medium',
     schema: {
       type: 'object',
       properties: {
@@ -232,7 +232,7 @@ return await agent(
    Identify the most likely root cause.\n${ref}`, {
   label: 'adversarial review',
   role: 'package:critic',
-  stream: 'heavy',
+  weight: 'heavy',
   thinkingLevel: 'high',
 })
 ```

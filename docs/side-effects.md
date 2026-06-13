@@ -28,7 +28,7 @@ const results = await parallel([
 
 ### When ownership overlaps
 
-If two work streams genuinely need the same file:
+If two lanes genuinely need the same file:
 
 **Option A: Serialize.** Make one agent go first, then the other reads the updated file.
 
@@ -48,7 +48,7 @@ await agent('Migrate auth using the updated types. You own src/auth/.', {
 
 ```js
 const architect = spawn('Design and write shared types to src/types/. You own src/types/.', {
-  label: 'architect', mailbox: true, tools: ['read', 'write'], stream: 'heavy',
+  label: 'architect', mailbox: true, tools: ['read', 'write'], weight: 'heavy',
 })
 
 const workers = modules.map(mod =>
@@ -83,7 +83,7 @@ const validation = await agent(
   'Run the linter, type checker, and test suite. Fix any failures. Report pass/fail.', {
   label: 'validate',
   tools: ['read', 'edit', 'bash'],
-  stream: 'medium',
+  weight: 'medium',
 })
 ```
 
@@ -159,7 +159,7 @@ export const meta = { name: 'full_migration', description: 'Multi-cycle migratio
 // Cycle 1: Plan
 phase('Plan')
 const plan = await agent('Create a migration plan.', {
-  label: 'plan', stream: 'heavy', role: 'package:planner',
+  label: 'plan', weight: 'heavy', role: 'package:planner',
 })
 
 // Cycle 2: Implement + validate per module
@@ -170,13 +170,13 @@ const results = await parallel(modules.map(mod => () =>
     [mod],
     async (mod) => {
       await agent(`Implement migration for ${mod.name}. You own ${mod.dir}.\n${planRef}`, {
-        label: `impl ${mod.name}`, tools: ['read', 'edit', 'write'], stream: 'medium',
+        label: `impl ${mod.name}`, tools: ['read', 'edit', 'write'], weight: 'medium',
       })
       return mod
     },
     async (mod) => {
       return await agent(`Test ${mod.name}: cd ${mod.dir} && npm test. Fix failures.`, {
-        label: `test ${mod.name}`, tools: ['read', 'edit', 'bash'], stream: 'medium',
+        label: `test ${mod.name}`, tools: ['read', 'edit', 'bash'], weight: 'medium',
         schema: {
           type: 'object',
           properties: { module: { type: 'string' }, passed: { type: 'boolean' } },
@@ -202,7 +202,7 @@ if (failed.length > 0) {
 }
 
 return await agent('Run the full integration test suite. Report final status.', {
-  label: 'final integration', tools: ['bash', 'read'], stream: 'heavy',
+  label: 'final integration', tools: ['bash', 'read'], weight: 'heavy',
   role: 'package:critic',
 })
 ```

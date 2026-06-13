@@ -1,6 +1,8 @@
 import type { ProjectRolePolicy } from "./roles.js";
 
-export type WorkflowStream = "light" | "medium" | "heavy";
+export type WorkflowWeight = "light" | "medium" | "heavy";
+/** @deprecated Use WorkflowWeight. */
+export type WorkflowStream = WorkflowWeight;
 export type WorkflowHostToolPolicy = "all" | "none" | string[];
 
 export interface WorkflowPolicy {
@@ -9,7 +11,9 @@ export interface WorkflowPolicy {
   maxConcurrency?: number;
   hardAbortGraceMs?: number;
   projectRoles?: ProjectRolePolicy;
-  modelsByStream?: Partial<Record<WorkflowStream, string>>;
+  modelsByWeight?: Partial<Record<WorkflowWeight, string>>;
+  /** @deprecated Use modelsByWeight. */
+  modelsByStream?: Partial<Record<WorkflowWeight, string>>;
   mailboxPauseTimeoutSeconds?: number;
 }
 
@@ -23,7 +27,8 @@ export function normalizeWorkflowPolicy(value: unknown): WorkflowPolicy {
     maxConcurrency: optionalPositiveInteger(policy.maxConcurrency, "policy.maxConcurrency"),
     hardAbortGraceMs: optionalNonNegativeNumber(policy.hardAbortGraceMs, "policy.hardAbortGraceMs"),
     projectRoles: optionalProjectRolePolicy(policy.projectRoles),
-    modelsByStream: optionalModelsByStream(policy.modelsByStream),
+    modelsByWeight: optionalModelsByWeight(policy.modelsByWeight, "policy.modelsByWeight"),
+    modelsByStream: optionalModelsByWeight(policy.modelsByStream, "policy.modelsByStream"),
     mailboxPauseTimeoutSeconds: optionalNonNegativeNumber(
       policy.mailboxPauseTimeoutSeconds,
       "policy.mailboxPauseTimeoutSeconds",
@@ -66,18 +71,18 @@ function optionalProjectRolePolicy(value: unknown): ProjectRolePolicy | undefine
   return value;
 }
 
-function optionalModelsByStream(value: unknown): WorkflowPolicy["modelsByStream"] {
+function optionalModelsByWeight(value: unknown, name: string): Partial<Record<WorkflowWeight, string>> | undefined {
   if (value === undefined) return undefined;
-  if (!value || typeof value !== "object") throw new TypeError("policy.modelsByStream must be an object");
+  if (!value || typeof value !== "object") throw new TypeError(`${name} must be an object`);
   const input = value as Record<string, unknown>;
-  const out: Partial<Record<WorkflowStream, string>> = {};
-  for (const stream of ["light", "medium", "heavy"] as const) {
-    const model = input[stream];
+  const out: Partial<Record<WorkflowWeight, string>> = {};
+  for (const weight of ["light", "medium", "heavy"] as const) {
+    const model = input[weight];
     if (model === undefined) continue;
     if (typeof model !== "string" || !model.trim()) {
-      throw new TypeError(`policy.modelsByStream.${stream} must be a non-empty string`);
+      throw new TypeError(`${name}.${weight} must be a non-empty string`);
     }
-    out[stream] = model;
+    out[weight] = model;
   }
   return out;
 }

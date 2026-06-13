@@ -18,7 +18,7 @@ export {
   renderWorkflowLines,
   renderWorkflowText,
 } from "./display.js";
-export type { WorkflowHostToolPolicy, WorkflowPolicy, WorkflowStream } from "./policy.js";
+export type { WorkflowHostToolPolicy, WorkflowPolicy, WorkflowStream, WorkflowWeight } from "./policy.js";
 export { normalizeWorkflowPolicy } from "./policy.js";
 export type { ProjectRolePolicy, ResolvedWorkflowRole, WorkflowRoleOptions, WorkflowRoleSource } from "./roles.js";
 export { formatWorkflowRoleInstructions, resolveWorkflowRole } from "./roles.js";

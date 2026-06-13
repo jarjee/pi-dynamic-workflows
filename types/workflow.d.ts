@@ -33,7 +33,9 @@ declare global {
     backoff?: "constant" | "exponential";
   }
 
-  type WorkflowStream = "light" | "medium" | "heavy";
+  type WorkflowWeight = "light" | "medium" | "heavy";
+  /** @deprecated Use WorkflowWeight. */
+  type WorkflowStream = WorkflowWeight;
 
   interface WorkflowAgentOptions<TSchema = JsonSchema> {
     /** Short label shown in the live progress UI. */
@@ -44,8 +46,12 @@ declare global {
     schema?: TSchema;
     /** Provider/model id to use for this subagent, e.g. anthropic/claude-opus-4-6. */
     model?: string;
-    /** Rough task stream class; host policy may map this to a model. */
-    stream?: WorkflowStream;
+    /** Model-routing weight; host policy may map this to a model. */
+    weight?: WorkflowWeight;
+    /** @deprecated Use weight. */
+    stream?: WorkflowWeight;
+    /** Model thinking effort for this subagent. */
+    thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
     /** Requested isolation mode. */
     isolation?: "worktree";
     /** Requested subagent role/type. */
@@ -105,7 +111,9 @@ declare global {
     maxConcurrency?: number;
     hardAbortGraceMs?: number;
     projectRoles?: "deny" | "allow";
-    modelsByStream?: Partial<Record<WorkflowStream, string>>;
+    modelsByWeight?: Partial<Record<WorkflowWeight, string>>;
+    /** @deprecated Use modelsByWeight. */
+    modelsByStream?: Partial<Record<WorkflowWeight, string>>;
     mailboxPauseTimeoutSeconds?: number;
   }
 
@@ -125,7 +133,7 @@ declare global {
   function parallel<T>(thunks: Array<() => Promise<T>>): Promise<T[]>;
 
   /** Materialize a large upstream value to a temp file when it exceeds inlineLimit. */
-  function handoff(value: unknown, options?: { inlineLimit?: number }): Promise<string>;
+  function handoff(value: unknown, options?: { inlineLimit?: number }): string;
 
   /** Run each item through sequential async stages while different items may run concurrently. */
   function pipeline<TItem, TResult = unknown>(

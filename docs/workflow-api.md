@@ -42,7 +42,7 @@ Spawn an isolated subagent and await its result. Returns the final assistant tex
 const result = await agent('Review the auth module for security issues.', {
   label: 'auth review',
   tools: ['read', 'grep', 'find', 'ls'],
-  stream: 'medium',
+  weight: 'medium',
 })
 ```
 
@@ -54,7 +54,7 @@ Start a subagent and return a handle immediately. Use when you need `id` (for ma
 const handle = spawn('Design the API contract.', {
   label: 'architect',
   mailbox: true,
-  stream: 'heavy',
+  weight: 'heavy',
 })
 // handle.id, handle.label, handle.status(), handle.result (Promise)
 ```
@@ -104,7 +104,7 @@ Small values (≤ `inlineLimit`, default 100KB) are returned as inline text. Lar
 
 Options: `{ inlineLimit: 100000 }` — byte threshold for inline vs file.
 
-Both `handoff(value)` and `await handoff(value)` work (awaiting a non-promise returns the value). Template interpolation `${handoff(data)}` is safe.
+`handoff(value)` is synchronous and returns a string. Do not await it; instead await upstream `agent()` or `spawn().result` values before handing them off. Template interpolation `${handoff(data)}` is safe.
 
 ### phase(title)
 
@@ -145,8 +145,9 @@ try { ... } catch (e) { if (isUncatchable(e)) throw e; /* handle */ }
 |--------|------|-------------|
 | `label` | `string` | **Required.** Unique 2-5 word label for progress display and recovery. |
 | `tools` | `string[]` | Built-in tool allowlist. Default: `['read', 'grep', 'find', 'ls']`. Use `[]` for no tools. Add `bash`, `edit`, `write` only for side effects. |
-| `stream` | `'light' \| 'medium' \| 'heavy'` | Work stream — policy maps to a model. Light for cheap fan-out, medium for code work, heavy for synthesis/architecture. |
-| `model` | `string` | Explicit `provider/model-id`. Overrides stream. Must exist in the Pi model registry. |
+| `weight` | `'light' \| 'medium' \| 'heavy'` | Model-routing size. Light for cheap fan-out, medium for code work, heavy for synthesis/architecture. |
+| `stream` | `'light' \| 'medium' \| 'heavy'` | Deprecated alias for `weight`; kept for existing workflow scripts. |
+| `model` | `string` | Explicit `provider/model-id`. Overrides weight. Must exist in the Pi model registry. |
 | `thinkingLevel` | `string` | Model thinking effort: `'off'`, `'minimal'`, `'low'`, `'medium'`, `'high'`, `'xhigh'`. |
 | `role` | `string` | Source-qualified reusable role: `package:reviewer`, `package:critic`, `package:planner`, `package:synthesizer`, `package:scout`, `package:worker`. |
 | `schema` | `object` | JSON Schema for structured output. Subagent must call `structured_output`. Returns validated object or `null`. |
@@ -202,7 +203,7 @@ The `policy` parameter controls runtime defaults:
   hardAbortGraceMs: 2000,                          // cleanup delay after abort
   projectRoles: 'deny',                            // 'deny' | 'allow'
   mailboxPauseTimeoutSeconds: 1800,                // mailbox pause timeout
-  modelsByStream: {
+  modelsByWeight: {
     light: 'provider/cheap-model',
     medium: 'provider/code-model',
     heavy: 'provider/frontier-model',
@@ -210,7 +211,7 @@ The `policy` parameter controls runtime defaults:
 }
 ```
 
-Scripts read the frozen `policy` global but cannot override enforcement. Script-level `tools`, `stream`, and `model` requests narrow within policy bounds.
+Scripts read the frozen `policy` global but cannot override enforcement. Script-level `tools`, `weight`, and `model` requests narrow within policy bounds.
 
 ## Partial recovery
 

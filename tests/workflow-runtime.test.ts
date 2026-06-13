@@ -482,7 +482,7 @@ return handoff('abcdef', { inlineLimit: 3 })
   assert.equal(await import("node:fs/promises").then((fs) => fs.readFile(path, "utf8")), "abcdef");
 });
 
-test("runWorkflow resolves stream to policy model refs", async () => {
+test("runWorkflow resolves weight to policy model refs", async () => {
   const calls: Array<{ model?: string }> = [];
   const agentRunner = {
     async run(_prompt: string, options: { model?: string }): Promise<string> {
@@ -493,13 +493,13 @@ test("runWorkflow resolves stream to policy model refs", async () => {
 
   await runWorkflow(
     `export const meta = {
-  name: 'stream_model_ref',
-  description: 'Route by work stream'
+  name: 'weight_model_ref',
+  description: 'Route by model weight'
 }
 
-return await agent('summarize', { label: 'summary', stream: 'light' })
+return await agent('summarize', { label: 'summary', weight: 'light' })
 `,
-    { agent: agentRunner, policy: { modelsByStream: { light: "provider/light-model" } } },
+    { agent: agentRunner, policy: { modelsByWeight: { light: "provider/light-model" } } },
   );
 
   assert.deepEqual(calls, [{ model: "provider/light-model" }]);

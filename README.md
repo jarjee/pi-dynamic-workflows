@@ -4,7 +4,7 @@
 
 A Pi extension that adds a `workflow` tool. Instead of one assistant doing everything sequentially, the model writes a small JavaScript script that fans out the work across many isolated subagents, then synthesizes the results.
 
-Great for codebase audits, multi-perspective review, large refactors, adversarial claim checking, repeatable quality gates, and fan-out research. Workflows are best when the task can be split into independent streams with clear scope, deliverables, and — for side-effectful work — non-overlapping file ownership.
+Great for codebase audits, multi-perspective review, large refactors, adversarial claim checking, repeatable quality gates, and fan-out research. Workflows are best when the task can be split into independent lanes with clear scope, deliverables, and — for side-effectful work — non-overlapping file ownership.
 
 Inspired by Anthropic's [dynamic workflows in Claude Code](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code).
 
@@ -116,7 +116,7 @@ This keeps `meta` parseable, runs reproducible, and the surface area small.
 
 ### Workflow fit and composition
 
-Before using a workflow, gate whether the task has real independent streams of work. Good fits include broad audits, many similar independent checks, multi-perspective review, debugging with competing hypotheses, research across alternatives, migrations with separable file sets, and repeatable quality gates. A good workflow may spawn many subagents when the work is genuinely fan-out; do not prematurely collapse useful independent lanes into a small fixed set. Poor fits include small one-step tasks, mostly sequential work, tightly coupled edits, and tasks likely to need user input midway.
+Before using a workflow, gate whether the task has real independent lanes of work. Good fits include broad audits, many similar independent checks, multi-perspective review, debugging with competing hypotheses, research across alternatives, migrations with separable file sets, and repeatable quality gates. A good workflow may spawn many subagents when the work is genuinely fan-out; do not prematurely collapse useful independent lanes into a small fixed set. Poor fits include small one-step tasks, mostly sequential work, tightly coupled edits, and tasks likely to need user input midway.
 
 For side-effectful implementation workflows, make each lane's file or directory ownership explicit and non-overlapping. If ownership overlaps, serialize those lanes or add dependencies rather than running them in parallel. Good subagent prompts include mission, concrete tasks, scope/out-of-scope, dependencies, quality standards, and expected deliverable shape.
 
@@ -133,7 +133,7 @@ The `workflow` tool accepts an optional host-enforced `policy` object:
     "maxConcurrency": 4,
     "hardAbortGraceMs": 2000,
     "projectRoles": "deny",
-    "modelsByStream": {
+    "modelsByWeight": {
       "light": "provider/light-model",
       "medium": "provider/code-model",
       "heavy": "provider/frontier-model"
@@ -168,7 +168,7 @@ const [contract, implementation] = await parallel([
 ])
 ```
 
-Always await all intended lanes and all `handoff(...)` calls before final synthesis. If a prompt contains `[object Promise]`, an upstream `agent()`/`spawn().result` or `handoff(...)` promise was interpolated before it was awaited.
+Always await all intended lanes before final synthesis. `handoff(...)` is synchronous; do not await it. If a prompt contains `[object Promise]`, an upstream `agent()` or `spawn().result` promise was interpolated before it was awaited.
 
 Mailbox-enabled agents receive `mailbox_peers`, `mailbox_send`, and `mailbox_pause` tools plus an identity/protocol prompt. Messages are automatically injected into the receiver's next/resume turn and are framed as peer/supervisor communication, not system instructions. If any spawned agent is still running or paused when the workflow returns, the workflow fails with a leak report and cleans up active agents.
 
@@ -210,42 +210,42 @@ Extension tool grants and caller skill inheritance are intentionally not ambient
 
 ### Large handoff artifacts
 
-Use `await handoff(value, { inlineLimit })` when passing potentially large upstream results into later prompts. `handoff` is async: always await it before interpolation. Small values are returned unchanged; larger values are written to a temporary mode-0600 file and replaced with instructions containing the file path.
+Use `handoff(value, { inlineLimit })` when passing potentially large upstream results into later prompts. `handoff` is synchronous: await upstream agent results first, then call `handoff(...)` without `await`. Small values are returned unchanged; larger values are written to a temporary mode-0600 file and replaced with instructions containing the file path.
 
 ```js
 const map = await agent('Map the repository.', { label: 'repo map' })
-const mapRef = await handoff(map, { inlineLimit: 100_000 })
+const mapRef = handoff(map, { inlineLimit: 100_000 })
 const review = await agent('Review using this map:\n' + mapRef, {
   label: 'review',
   tools: ['read', 'grep', 'find', 'ls'],
 })
 ```
 
-### Per-agent model selection and stream
+### Per-agent model selection and weight
 
-Use `opts.model` with a `provider/model-id` ref to run a specific subagent on a different configured model, or use `opts.stream` to let runtime policy choose the model:
+Use `opts.model` with a `provider/model-id` ref to run a specific subagent on a different configured model, or use `opts.weight` to let runtime policy choose the model:
 
 ```js
 const summary = await agent('Summarize this subsystem.', {
   label: 'cheap summary',
-  stream: 'light',
+  weight: 'light',
 })
 
 const critique = await agent('Deeply critique the proposed architecture.', {
   label: 'deep critique',
-  stream: 'heavy',
+  weight: 'heavy',
   role: 'package:critic',
 })
 ```
 
-Use a light stream for cheap summarization/classification across many items, a medium stream for normal code generation and review, and a heavy stream for architecture, final synthesis, adversarial critique, and quality gates. Explicit model refs must exist in the active Pi model registry; unknown refs fail before the subagent launches.
+Use a light weight for cheap summarization/classification across many items, a medium weight for normal code generation and review, and a heavy weight for architecture, final synthesis, adversarial critique, and quality gates. Explicit model refs must exist in the active Pi model registry; unknown refs fail before the subagent launches.
 
-`stream` chooses the class of work/model routing. `thinkingLevel` is separate and controls model thinking effort when the selected model supports it:
+`weight` chooses the model-routing size. `stream` remains a deprecated alias for existing scripts. `thinkingLevel` is separate and controls model thinking effort when the selected model supports it:
 
 ```js
 const review = await agent('Review the migration plan carefully.', {
   label: 'careful review',
-  stream: 'heavy',
+  weight: 'heavy',
   thinkingLevel: 'high',
 })
 ```
@@ -293,7 +293,7 @@ user prompt
   → workflow tool parses + runs script in a vm sandbox
   → script calls agent(), parallel(), pipeline()
   → each agent() spawns an in-memory Pi subagent session
-  → snapshots stream back as compact progress
+  → snapshots are reported back as compact progress
   → final structured result returned to the parent assistant
 ```
 
