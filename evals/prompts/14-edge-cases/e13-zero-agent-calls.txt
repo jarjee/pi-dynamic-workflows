@@ -1,0 +1,7 @@
+You MUST call the workflow tool with this exact script. Do not modify it. Just call the workflow tool.
+
+export const meta = { name: "zero_agents", description: "No agent calls" }
+
+registerPhase("Empty", async () => {
+  return "no agents called"
+})
