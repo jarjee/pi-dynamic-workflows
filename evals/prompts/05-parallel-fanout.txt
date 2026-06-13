@@ -1,0 +1,1 @@
+Use the workflow tool to review the three sample project source files in parallel. Each file should be reviewed by its own agent running concurrently in a single phase. For each file, report: the number of lines, the number of exported functions, and whether it imports from other project files. Then use a synthesis phase to combine the three reviews into a summary table.

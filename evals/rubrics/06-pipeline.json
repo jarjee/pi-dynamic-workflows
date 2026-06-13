@@ -1,0 +1,36 @@
+{
+  "eval": "06-pipeline",
+  "description": "LLM uses pipeline() for sequential stages with concurrent items",
+  "criteria": [
+    {
+      "name": "uses_pipeline",
+      "description": "Script uses pipeline() with items and stages",
+      "pass_condition": "Script calls pipeline() with at least 2 items and 2 stage functions."
+    },
+    {
+      "name": "correct_pipeline_syntax",
+      "description": "pipeline() receives array of items then stage functions, not promises",
+      "pass_condition": "First arg to pipeline() is an array. Subsequent args are functions."
+    },
+    {
+      "name": "stages_sequential",
+      "description": "Each item goes through stages in order (stage 2 receives stage 1 output)",
+      "pass_condition": "Second stage function uses the first stage's output (the prev parameter)."
+    },
+    {
+      "name": "within_registerPhase",
+      "description": "pipeline() used inside a registerPhase body",
+      "pass_condition": "The pipeline call is inside a registerPhase body."
+    },
+    {
+      "name": "summary_phase",
+      "description": "A summary phase after the pipeline phase",
+      "pass_condition": "Script has a separate phase after the pipeline phase."
+    },
+    {
+      "name": "sensible_distribution",
+      "description": "The pipeline produces meaningful size classifications",
+      "pass_condition": "Result shows line counts or size categories for the files."
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "eval": "04-team-mailbox",
+  "description": "LLM creates a spawn+mailbox team with architect/workers and directed communication",
+  "criteria": [
+    {
+      "name": "uses_spawn_not_agent",
+      "description": "Team members created with spawn(), not agent()",
+      "pass_condition": "Script uses spawn() for at least some agents (not all agent())."
+    },
+    {
+      "name": "mailbox_enabled",
+      "description": "Spawned agents have mailbox: true",
+      "pass_condition": "At least one spawn call includes mailbox: true."
+    },
+    {
+      "name": "mailbox_wiring",
+      "description": "Communication channels wired with mailbox.connect or mailbox.allow",
+      "pass_condition": "Script calls mailbox.connect() or mailbox.allow() between spawned agents."
+    },
+    {
+      "name": "all_handles_awaited",
+      "description": "All spawned handles are awaited before phase returns",
+      "pass_condition": "Script uses parallel on handle results or individually awaits each handle.result."
+    },
+    {
+      "name": "mailbox_transcript",
+      "description": "Mailbox transcript was generated",
+      "pass_condition": "Output contains 'Mailbox transcript:' with a file path."
+    },
+    {
+      "name": "no_leaked_agents",
+      "description": "No spawned agents leaked (all completed or failed)",
+      "pass_condition": "No error about 'still active' agents."
+    },
+    {
+      "name": "sensible_team_result",
+      "description": "The team produced a coherent result (design + implementation)",
+      "pass_condition": "Result references the Task data model and implementation. Synthesis phase confirms coordination."
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "eval": "07-side-effect-safety",
+  "description": "LLM creates write-capable agents with non-overlapping file ownership and validation gate",
+  "criteria": [
+    {
+      "name": "write_tools_explicit",
+      "description": "Write-capable agents explicitly request tools like write, bash",
+      "pass_condition": "At least one agent includes 'write' or 'bash' in its tools array."
+    },
+    {
+      "name": "non_overlapping_dirs",
+      "description": "Each agent is assigned a distinct directory",
+      "pass_condition": "Agent prompts specify distinct directories (e.g., alpha/ and beta/). No shared directories."
+    },
+    {
+      "name": "validation_gate",
+      "description": "A gate or validation phase checks the results",
+      "pass_condition": "Script has a gate function or a separate validation phase that checks file existence/content."
+    },
+    {
+      "name": "files_created",
+      "description": "Both output files were created",
+      "pass_condition": "Output shows evidence of file creation. Validation confirms files exist."
+    },
+    {
+      "name": "no_conflicts",
+      "description": "No file ownership conflicts between agents",
+      "pass_condition": "No error messages about file conflicts or cross-directory writes."
+    },
+    {
+      "name": "registerPhase_usage",
+      "description": "Uses registerPhase DSL",
+      "pass_condition": "Script uses registerPhase() for phase declarations."
+    }
+  ]
+}

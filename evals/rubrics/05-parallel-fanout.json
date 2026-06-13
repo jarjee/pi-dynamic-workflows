@@ -1,0 +1,36 @@
+{
+  "eval": "05-parallel-fanout",
+  "description": "LLM uses parallel() to fan out file reviews and synthesize results",
+  "criteria": [
+    {
+      "name": "uses_parallel",
+      "description": "Script uses parallel() to run multiple agents concurrently",
+      "pass_condition": "Script calls parallel() with at least 3 thunks (one per file)."
+    },
+    {
+      "name": "correct_parallel_syntax",
+      "description": "parallel() takes functions, not promises",
+      "pass_condition": "parallel() wraps each call in () => agent(...), not promises directly."
+    },
+    {
+      "name": "within_registerPhase",
+      "description": "parallel() used inside a registerPhase body",
+      "pass_condition": "The parallel call is inside a registerPhase body."
+    },
+    {
+      "name": "null_filtering",
+      "description": "Results filtered for null before synthesis",
+      "pass_condition": "If filtering is shown, uses .filter(Boolean) on parallel results."
+    },
+    {
+      "name": "synthesis_phase",
+      "description": "A synthesis phase combines parallel results",
+      "pass_condition": "Script has a separate synthesis phase after the parallel review phase."
+    },
+    {
+      "name": "sensible_summary",
+      "description": "The synthesis provides a coherent summary of all three files",
+      "pass_condition": "Result mentions line counts, export counts, or imports for auth, billing, utils."
+    }
+  ]
+}

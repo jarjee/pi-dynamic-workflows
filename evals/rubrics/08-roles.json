@@ -1,0 +1,36 @@
+{
+  "eval": "08-roles",
+  "description": "LLM uses package:reviewer, package:critic, and package:synthesizer roles",
+  "criteria": [
+    {
+      "name": "roles_used",
+      "description": "Three distinct package roles are used",
+      "pass_condition": "Script includes role: 'package:reviewer', role: 'package:critic', and role: 'package:synthesizer'."
+    },
+    {
+      "name": "correct_role_syntax",
+      "description": "Role refs use the source-qualified format",
+      "pass_condition": "Roles specified as 'package:name' (not bare names like 'reviewer')."
+    },
+    {
+      "name": "roles_in_separate_phases",
+      "description": "Each role is used in a distinct phase",
+      "pass_condition": "Script has separate phases for the review, critique, and synthesis perspectives."
+    },
+    {
+      "name": "role_behavior_distinct",
+      "description": "Each role produces distinct output style (reviewer assesses, critic challenges, synthesizer combines)",
+      "pass_condition": "Reviewer output discusses quality. Critic output is adversarial/challenging. Synthesizer combines both."
+    },
+    {
+      "name": "data_flow_between_phases",
+      "description": "Data flows from review to critique to synthesis via registerPhase",
+      "pass_condition": "Critique phase receives review output. Synthesis phase receives critique output."
+    },
+    {
+      "name": "no_role_errors",
+      "description": "No role resolution errors",
+      "pass_condition": "No 'role not found' or 'Unknown workflow role' errors."
+    }
+  ]
+}
