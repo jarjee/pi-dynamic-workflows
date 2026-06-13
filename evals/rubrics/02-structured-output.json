@@ -1,0 +1,31 @@
+{
+  "eval": "02-structured-output",
+  "description": "LLM uses structured_output with schema and a validation gate that retries",
+  "criteria": [
+    {
+      "name": "schema_used",
+      "description": "At least one agent uses schema option with a JSON Schema",
+      "pass_condition": "Script includes schema: { ... } on an agent call. Not just prose instructions."
+    },
+    {
+      "name": "structured_data_in_result",
+      "description": "The result contains the expected fields from the schema",
+      "pass_condition": "Result includes moduleName, language, functionCount, hasErrorHandling with correct types."
+    },
+    {
+      "name": "validation_exists",
+      "description": "A validation phase or gate checks the classification",
+      "pass_condition": "Script has either a gate on the classification phase or a separate validate phase."
+    },
+    {
+      "name": "retry_or_gate_configured",
+      "description": "The workflow can retry if validation fails",
+      "pass_condition": "Either the schema agent uses retry: { attempts: ... }, or the validation is implemented as a registerPhase gate with maxIterations / default gate retries."
+    },
+    {
+      "name": "tool_invoked_and_completed",
+      "description": "Workflow tool called and completed without errors",
+      "pass_condition": "Output contains 'Workflow ... completed'. No failed agents."
+    }
+  ]
+}

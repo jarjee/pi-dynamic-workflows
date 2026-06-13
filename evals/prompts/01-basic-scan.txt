@@ -1,0 +1,1 @@
+Use the workflow tool to inspect the sample project. Read each source file (src/auth.ts, src/billing.ts, src/utils.ts) and report: whether it exists, how many exported functions it has, and any obvious issues. Then synthesize all findings into a single summary. Group the file scans under one phase and the synthesis under another.

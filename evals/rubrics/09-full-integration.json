@@ -1,0 +1,51 @@
+{
+  "eval": "09-full-integration",
+  "description": "LLM combines registerPhase, parallel, spawn+mailbox, structured output, handoff, and synthesis in one workflow",
+  "criteria": [
+    {
+      "name": "registerPhase_used",
+      "description": "Uses registerPhase DSL for top-level phases",
+      "pass_condition": "Script declares multiple registerPhase() calls."
+    },
+    {
+      "name": "parallel_used",
+      "description": "Uses parallel() for concurrent fan-out",
+      "pass_condition": "Script includes parallel() with multiple lanes."
+    },
+    {
+      "name": "spawn_mailbox_used",
+      "description": "Uses spawn() with mailbox for team coordination",
+      "pass_condition": "Script includes spawn(... , { mailbox: true }) and mailbox.connect()."
+    },
+    {
+      "name": "structured_output_used",
+      "description": "At least one agent uses schema for structured output",
+      "pass_condition": "Script includes schema: { ... } on an agent call."
+    },
+    {
+      "name": "handoff_used",
+      "description": "Uses handoff() within phases to pass data to subagents",
+      "pass_condition": "Script calls handoff() inside a registerPhase body."
+    },
+    {
+      "name": "synthesis_phase",
+      "description": "Final phase synthesizes all results",
+      "pass_condition": "Script has a final synthesis phase that receives upstream results."
+    },
+    {
+      "name": "correct_model_refs",
+      "description": "Agents use explicit model refs, not weight/stream",
+      "pass_condition": "Agent calls use model: '...' — not weight or stream."
+    },
+    {
+      "name": "workflow_completed",
+      "description": "Full workflow completed without errors",
+      "pass_condition": "Output shows 'Workflow ... completed'. All agents done, no failures."
+    },
+    {
+      "name": "sensible_results",
+      "description": "Results form a coherent whole across all features",
+      "pass_condition": "Result includes findings from file scans, team coordination output, and a final synthesis summary."
+    }
+  ]
+}

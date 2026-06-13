@@ -1,0 +1,36 @@
+{
+  "eval": "03-gate-retry",
+  "description": "LLM sets up a gate with retry loop — agent self-heals from gate failure context",
+  "criteria": [
+    {
+      "name": "gate_present",
+      "description": "A phase uses gate option",
+      "pass_condition": "Script includes gate: on a registerPhase call."
+    },
+    {
+      "name": "maxIterations_set",
+      "description": "maxIterations is configured on the gated phase",
+      "pass_condition": "Script includes maxIterations: on the gated phase (likely 3)."
+    },
+    {
+      "name": "gate_logic_correct",
+      "description": "Gate checks for both 'hello' and 'world' in output",
+      "pass_condition": "The gate function checks for both words in the agent output."
+    },
+    {
+      "name": "workflow_completed",
+      "description": "Workflow completed — gate eventually passed",
+      "pass_condition": "Output shows 'Workflow ... completed'. Gate didn't exhaust (no __phaseMeta)."
+    },
+    {
+      "name": "confirmation_phase",
+      "description": "Second phase confirms the greeting passed validation",
+      "pass_condition": "Script has a second phase that receives the greeting and confirms it."
+    },
+    {
+      "name": "correct_registerPhase_usage",
+      "description": "Uses registerPhase DSL, not bare phase() calls",
+      "pass_condition": "Phases are declared with registerPhase()."
+    }
+  ]
+}

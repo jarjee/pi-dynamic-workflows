@@ -1,0 +1,31 @@
+{
+  "eval": "10-error-recovery",
+  "description": "LLM tests error recovery — partial agent results saved when script throws",
+  "criteria": [
+    {
+      "name": "first_phase_completes",
+      "description": "First phase with an agent completes successfully before the throw",
+      "pass_condition": "Output shows at least one agent completed with 'done' status."
+    },
+    {
+      "name": "throws_deliberately",
+      "description": "Script has a deliberate throw after agent completion",
+      "pass_condition": "Script includes throw new Error(...) after an agent completes."
+    },
+    {
+      "name": "recovery_manifest",
+      "description": "Output contains recovery directory path and manifest",
+      "pass_condition": "Output includes 'Recovery directory:' with a path and mentions 'Completed agent' or 'manifest.json'."
+    },
+    {
+      "name": "completed_results_saved",
+      "description": "Completed agent results are persisted to recovery files",
+      "pass_condition": "Output lists completed agents with result file paths."
+    },
+    {
+      "name": "graceful_failure",
+      "description": "Workflow fails gracefully (recovery, not crash)",
+      "pass_condition": "Output shows 'Workflow failed' not a crash. Recovery info is present."
+    }
+  ]
+}

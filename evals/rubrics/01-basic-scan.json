@@ -1,0 +1,36 @@
+{
+  "eval": "01-basic-scan",
+  "description": "LLM uses the workflow tool with registerPhase to scan files and synthesize",
+  "criteria": [
+    {
+      "name": "tool_invoked",
+      "description": "Workflow tool was actually called (output shows execution, not just description)",
+      "pass_condition": "Output contains 'Workflow ... completed with' indicating the tool ran. Not a hypothetical description."
+    },
+    {
+      "name": "uses_registerPhase",
+      "description": "Script uses registerPhase() for top-level phase declarations",
+      "pass_condition": "Script declares phases via registerPhase(), not bare phase() + agent() at top level."
+    },
+    {
+      "name": "correct_agent_options",
+      "description": "Agents use model refs (not weight/stream), have unique labels, and use read tools",
+      "pass_condition": "Agents specify model: with a valid model ref. Each has a distinct label. Read tool is specified for file operations."
+    },
+    {
+      "name": "handoff_within_phases",
+      "description": "handoff() used only inside phase bodies, not between phases",
+      "pass_condition": "If handoff is used, it's inside a registerPhase body. Cross-phase data flows through registerPhase pipes."
+    },
+    {
+      "name": "all_phases_completed",
+      "description": "All declared phases ran and their agents finished",
+      "pass_condition": "Output shows all phases with agents in 'done' status. No 'error' or 'failed' agents."
+    },
+    {
+      "name": "sensible_results",
+      "description": "The synthesis summarizes findings about all three files",
+      "pass_condition": "Results mention auth, billing, utils files. Not empty, generic, or unrelated to the task."
+    }
+  ]
+}
