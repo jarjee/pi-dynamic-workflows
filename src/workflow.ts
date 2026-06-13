@@ -8,7 +8,7 @@ import type { Node } from "acorn";
 import { parse } from "acorn";
 import { type TSchema, Type } from "typebox";
 import { WorkflowAgent, type WorkflowAgentOptions } from "./agent.js";
-import { normalizeWorkflowPolicy, type WorkflowPolicy, type WorkflowStream } from "./policy.js";
+import { normalizeWorkflowPolicy, type WorkflowPolicy, type WorkflowWeight } from "./policy.js";
 import { formatWorkflowRoleInstructions, resolveWorkflowRole, type WorkflowRoleOptions } from "./roles.js";
 
 export interface WorkflowMetaPhase {
@@ -60,8 +60,10 @@ export interface AgentOptions<TSchemaDef extends TSchema | undefined = TSchema |
   phase?: string;
   schema?: TSchemaDef;
   model?: string;
-  /** Rough stream of work; host policy may map this to a model. */
-  stream?: WorkflowStream;
+  /** Model-routing weight; host policy may map this to a model. */
+  weight?: WorkflowWeight;
+  /** @deprecated Use weight. */
+  stream?: WorkflowWeight;
   /** Model thinking effort for this subagent. */
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   /** Enable runtime mailbox tools for communicating workflow agents. */
@@ -302,9 +304,9 @@ export async function runWorkflow<T = unknown>(
               const result = await agentRunner.run(taskPrompt, {
                 label,
                 phase: assignedPhase,
-                stream: normalizedOptions.stream,
+                stream: normalizedOptions.weight,
                 schema: normalizedOptions.schema,
-                model: normalizedOptions.model ?? modelForStream(normalizedOptions.stream, policy),
+                model: normalizedOptions.model ?? modelForWeight(normalizedOptions.weight, policy),
                 thinkingLevel: normalizedOptions.thinkingLevel,
                 tools: normalizedOptions.tools,
                 signal: attemptSignal.signal,
@@ -707,7 +709,10 @@ function normalizeAgentOptions(value: unknown): AgentOptions {
     label: optionalString(options.label, "agent label"),
     phase: optionalString(options.phase, "agent phase"),
     model: optionalString(options.model, "agent model"),
-    stream: optionalStream(options.stream),
+    weight: optionalWeight(
+      options.weight ?? options.stream,
+      options.weight === undefined ? "agent stream alias" : "agent weight",
+    ),
     thinkingLevel: optionalThinkingLevel(options.thinkingLevel),
     isolation: options.isolation,
     agentType: optionalString(options.agentType, "agent type"),
@@ -733,10 +738,10 @@ function optionalStringArray(value: unknown, name: string): string[] | undefined
   return Array.from(value, (item, index) => requireString(item, `${name}[${index}]`));
 }
 
-function optionalStream(value: unknown): WorkflowStream | undefined {
+function optionalWeight(value: unknown, name: string): WorkflowWeight | undefined {
   if (value === undefined) return undefined;
   if (value !== "light" && value !== "medium" && value !== "heavy") {
-    throw new TypeError('agent stream must be "light", "medium", or "heavy"');
+    throw new TypeError(`${name} must be "light", "medium", or "heavy"`);
   }
   return value;
 }
@@ -756,8 +761,8 @@ function optionalThinkingLevel(value: unknown): AgentOptions["thinkingLevel"] {
   return value;
 }
 
-function modelForStream(stream: WorkflowStream | undefined, policy: WorkflowPolicy): string | undefined {
-  return stream ? policy.modelsByStream?.[stream] : undefined;
+function modelForWeight(weight: WorkflowWeight | undefined, policy: WorkflowPolicy): string | undefined {
+  return weight ? (policy.modelsByWeight?.[weight] ?? policy.modelsByStream?.[weight]) : undefined;
 }
 
 function optionalPositiveNumber(value: unknown, name: string): number | undefined {
@@ -1015,7 +1020,7 @@ function buildAgentInstructions(
   if (phase) lines.push(`Workflow phase: ${phase}`);
   if (options.agentType) lines.push(`Act as workflow subagent type: ${options.agentType}`);
   if (options.isolation) lines.push(`Requested isolation: ${options.isolation}`);
-  if (options.stream) lines.push(`Requested work stream: ${options.stream}`);
+  if (options.weight) lines.push(`Requested model weight: ${options.weight}`);
   if (options.thinkingLevel) lines.push(`Requested thinking level: ${options.thinkingLevel}`);
   if (options.model) lines.push(`Requested model: ${options.model}`);
   return lines.length ? lines.join("\n") : undefined;

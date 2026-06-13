@@ -39,8 +39,8 @@ await agent('Your task prompt here.', {
   label: 'short label',           // required — 2-5 words, unique, drives progress display
   tools: ['read', 'grep', 'ls'],  // tool name allowlist; omit for defaults; [] for none
   // Extension tools (MCP, project-specific) are available by name just like built-ins.
-  stream: 'light',                // 'light' | 'medium' | 'heavy' — policy routes to a model
-  model: 'provider/model-id',     // explicit model (overrides stream)
+  weight: 'light',                // 'light' | 'medium' | 'heavy' — policy routes to a model
+  model: 'provider/model-id',     // explicit model (overrides weight)
   thinkingLevel: 'high',          // 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
   role: 'package:reviewer',       // prepend a reusable role prompt
   schema: { /* JSON Schema */ },  // subagent must call structured_output; returns validated object
@@ -73,7 +73,7 @@ try {
 
 ## Examples
 
-### Example 1: Fan-out review (simple team)
+### Example 1: Fan-out review
 
 Three agents review different aspects, results synthesized. The most common workflow shape.
 
@@ -83,7 +83,7 @@ export const meta = { name: 'review_modules', description: 'Multi-perspective mo
 phase('Scan')
 const inventory = await agent('List all source modules, their purpose, and key exports.', {
   label: 'repo scan',
-  stream: 'light',
+  weight: 'light',
 })
 
 phase('Review')
@@ -92,7 +92,7 @@ const aspects = ['error handling', 'test coverage', 'API consistency']
 const reviews = await parallel(aspects.map(aspect => () =>
   agent(`Review the codebase for ${aspect}. Repo context:\n${ref}`, {
     label: `review ${aspect}`,
-    stream: 'medium',
+    weight: 'medium',
   })
 ))
 
@@ -101,7 +101,7 @@ const valid = reviews.filter(Boolean)
 const allRef = handoff(valid)
 return await agent(`Synthesize these reviews into actionable findings:\n${allRef}`, {
   label: 'synthesis',
-  stream: 'heavy',
+  weight: 'heavy',
   thinkingLevel: 'high',
 })
 ```
@@ -117,27 +117,27 @@ phase('Design')
 const architect = spawn(
   `Design the interface for user preferences. Write the types to src/types/preferences.ts.
    When done, send your contract to all peers via mailbox_send.`,
-  { label: 'architect', mailbox: true, tools: ['read', 'find', 'write'], stream: 'heavy' }
+  { label: 'architect', mailbox: true, tools: ['read', 'find', 'write'], weight: 'heavy' }
 )
 
 const tester = spawn(
   `You are the test agent. Wait for the architect to send you the interface contract.
    Write tests based on the contract to tests/preferences/. When the implementer notifies
    you, run the tests and report red/green results.`,
-  { label: 'tester', mailbox: true, tools: ['read', 'write', 'bash'], stream: 'medium' }
+  { label: 'tester', mailbox: true, tools: ['read', 'write', 'bash'], weight: 'medium' }
 )
 
 const implementer = spawn(
   `You are the implementation agent. Wait for the architect contract via mailbox.
    Implement the preferences API in src/api/preferences/ and src/db/preferences/.
    When done, notify the tester via mailbox_send.`,
-  { label: 'implementer', mailbox: true, tools: ['read', 'write', 'edit'], stream: 'medium' }
+  { label: 'implementer', mailbox: true, tools: ['read', 'write', 'edit'], weight: 'medium' }
 )
 
 const qa = spawn(
   `Review the architect's design for gaps, then review the implementation for correctness.
    Check code quality and consistency. You own no files — read only.`,
-  { label: 'qa reviewer', mailbox: true, tools: ['read', 'grep', 'find'], stream: 'heavy' }
+  { label: 'qa reviewer', mailbox: true, tools: ['read', 'grep', 'find'], weight: 'heavy' }
 )
 
 // Wire communication channels
@@ -159,7 +159,7 @@ phase('Validate')
 return await agent('Run the full test suite and linter. Report pass/fail.', {
   label: 'final validation',
   tools: ['read', 'bash'],
-  stream: 'medium',
+  weight: 'medium',
 })
 ```
 
@@ -181,7 +181,7 @@ phase('Plan')
 const plan = await agent(
   'Read the codebase and create a migration plan for moving from Express to Hono.', {
   label: 'migration plan',
-  stream: 'heavy',
+  weight: 'heavy',
   thinkingLevel: 'high',
   role: 'package:planner',
 })
@@ -198,7 +198,7 @@ const results = await parallel(modules.map(mod => () =>
         `Migrate ${mod.name} from Express to Hono. You own ${mod.dir}.\nPlan:\n${planRef}`, {
         label: `migrate ${mod.name}`,
         tools: ['read', 'edit', 'write'],
-        stream: 'medium',
+        weight: 'medium',
       })
       return { mod, result }
     },
@@ -208,7 +208,7 @@ const results = await parallel(modules.map(mod => () =>
         `Run tests for ${mod.name}: cd ${mod.tests} && npm test. Fix any failures. You own ${mod.dir} and ${mod.tests}.`, {
         label: `validate ${mod.name}`,
         tools: ['read', 'edit', 'bash'],
-        stream: 'medium',
+        weight: 'medium',
         schema: {
           type: 'object',
           properties: {
@@ -234,7 +234,7 @@ return await agent(
    Module results:\n${resultsRef}`, {
   label: 'integration check',
   tools: ['read', 'bash'],
-  stream: 'heavy',
+  weight: 'heavy',
   role: 'package:critic',
   thinkingLevel: 'high',
 })
@@ -248,7 +248,7 @@ Full reference for all globals, agent/spawn options, and runtime behavior.
 
 **Read this when:** using `pipeline()`, `schema`, `retry`, `timeoutSeconds`, `role`, runtime `policy`, `budget`, or `handoff()` with custom `inlineLimit`. Also covers the determinism rules, meta format, and structured output contract.
 
-**Keywords:** pipeline stages, JSON Schema, structured_output, retry backoff, timeout, reusable roles (package:reviewer, package:critic, package:planner, package:synthesizer, package:scout, package:worker), policy maxConcurrency, modelsByStream, defaultTools, projectRoles, token budget, handoff inlineLimit, meta.phases, determinism sandbox.
+**Keywords:** pipeline stages, JSON Schema, structured_output, retry backoff, timeout, reusable roles (package:reviewer, package:critic, package:planner, package:synthesizer, package:scout, package:worker), policy maxConcurrency, modelsByWeight, defaultTools, projectRoles, token budget, handoff inlineLimit, meta.phases, determinism sandbox.
 
 ### [Team Composition & Mailbox](docs/teams.md)
 

@@ -26,7 +26,7 @@ The runtime should absorb useful `pi-multiagent` safety and execution features a
 
 ### Workflow composition
 
-Transferable team-composition rules apply to workflows: gate whether the work has real independent streams, keep the number of lanes small enough to coordinate, make dependencies explicit, and define concrete deliverables for each lane. For side-effectful lanes, file ownership must be explicit and non-overlapping; otherwise serialize the work or add dependencies. End side-effectful workflows with an explicit validation lane/gate that runs relevant formatting, linting, typechecking, and tests before final synthesis.
+Transferable team-composition rules apply to workflows: gate whether the work has real independent lanes, keep the number of lanes small enough to coordinate, make dependencies explicit, and define concrete deliverables for each lane. For side-effectful lanes, file ownership must be explicit and non-overlapping; otherwise serialize the work or add dependencies. End side-effectful workflows with an explicit validation lane/gate that runs relevant formatting, linting, typechecking, and tests before final synthesis.
 
 Useful archetypes include implementation lanes split by layer or module, review lanes split by perspective, debugging lanes split by hypothesis, research lanes split by alternative, and migration lanes split by file set with a validator lane.
 
@@ -68,11 +68,11 @@ When a parent workflow abort signal fires, the runtime calls `abortAll()` on the
 
 `handoff(value, { inlineLimit })` converts potentially large upstream values into mode-0600 temp-file references. This keeps model-generated workflow scripts simple while avoiding accidentally stuffing very large upstream outputs into downstream prompts.
 
-### Per-agent model selection and stream
+### Per-agent model selection and weight
 
 `agent(prompt, { model: 'provider/model-id' })` resolves the ref through the active Pi model registry and passes the resolved model into the child in-memory session. Unknown refs fail before launch.
 
-`agent(prompt, { stream })` is a softer routing hint. Hosts can map `light`, `medium`, and `heavy` to concrete models through `policy.modelsByStream`. Use light for cheap summarization/classification across many items, medium for normal code generation and review, and heavy for architecture, final synthesis, adversarial critique, and quality gates.
+`agent(prompt, { weight })` is a softer routing hint. Hosts can map `light`, `medium`, and `heavy` to concrete models through `policy.modelsByWeight`. Use light for cheap summarization/classification across many items, medium for normal code generation and review, and heavy for architecture, final synthesis, adversarial critique, and quality gates. `stream` remains a deprecated alias for existing scripts.
 
 ### Timeout and retry
 
