@@ -12,9 +12,9 @@ _Avoid_: workflow run, orchestration
 An agent spawned within a workflow via `agent()` (awaited) or `spawn()` (handle-returning). Subagents receive their own tools and can communicate via mailbox.
 _Avoid_: child agent, worker, task
 
-**Weight**:
-A model-routing size classification for subagent calls: `light`, `medium`, or `heavy`. Mapped to concrete models by runtime `policy.modelsByWeight` (or legacy `policy.modelsByStream`). Separate from thinking effort.
-_Avoid_: stream, effort, tier
+**Model**:
+An explicit model-id string for a subagent call (e.g. `deepseek-v4-flash`). Matched to task complexity. Combined with `thinkingLevel` for effort control.
+_Avoid_: weight, stream, tier, routing
 
 **Mailbox**:
 A communication channel between spawned subagents. Exposed to subagents as `mailbox_peers`, `mailbox_send`, and `mailbox_pause` tools. The workflow supervisor configures channels via `mailbox.allow()`, `mailbox.connect()`, and `mailbox.send()`.
@@ -37,7 +37,7 @@ A parallel branch of work — one function in a `parallel()` call. Each lane run
 _Avoid_: branch, thread, fork
 
 **Policy**:
-A frozen runtime policy object exposed to workflow scripts. Controls `defaultTools`, `maxConcurrency`, `modelsByWeight` / legacy `modelsByStream`, `projectRoles`, and `hardAbortGraceMs`.
+A frozen runtime policy object exposed to workflow scripts. Controls `defaultTools`, `maxConcurrency`, `projectRoles`, and `hardAbortGraceMs`.
 _Avoid_: config, settings
 
 ## Architecture Decisions
