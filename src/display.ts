@@ -8,6 +8,7 @@ export interface WorkflowAgentSnapshot {
   label: string;
   phase?: string;
   prompt: string;
+  model?: string;
   status: WorkflowAgentStatus;
   resultPreview?: string;
   error?: string;

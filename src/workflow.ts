@@ -35,8 +35,8 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
   policy?: WorkflowPolicy;
   onLog?: (message: string) => void;
   onPhase?: (title: string) => void;
-  onAgentStart?: (event: { label: string; phase?: string; prompt: string }) => void;
-  onAgentEnd?: (event: { label: string; phase?: string; result: unknown }) => void;
+  onAgentStart?: (event: { label: string; phase?: string; prompt: string; model?: string }) => void;
+  onAgentEnd?: (event: { label: string; phase?: string; result: unknown; model?: string }) => void;
 }
 
 export interface WorkflowRunResult<T = unknown> {
@@ -286,7 +286,8 @@ export async function runWorkflow<T = unknown>(
       limiter(async () => {
         status = "running";
         state.agentCount++;
-        options.onAgentStart?.({ label, phase: assignedPhase, prompt: taskPrompt });
+        const resolvedModel = normalizedOptions.model ?? modelForWeight(normalizedOptions.weight, policy);
+        options.onAgentStart?.({ label, phase: assignedPhase, prompt: taskPrompt, model: resolvedModel });
         const roleInstructions = normalizedOptions.role
           ? formatWorkflowRoleInstructions(
               await resolveWorkflowRole(normalizedOptions.role, {
@@ -344,7 +345,7 @@ export async function runWorkflow<T = unknown>(
                 continue;
               }
               status = result === null ? "failed" : "completed";
-              options.onAgentEnd?.({ label, phase: assignedPhase, result });
+              options.onAgentEnd?.({ label, phase: assignedPhase, result, model: resolvedModel });
               return result;
             } catch (error) {
               attemptSignal.cleanup();
@@ -361,12 +362,12 @@ export async function runWorkflow<T = unknown>(
               }
               status = "failed";
               log(`agent ${label} failed: ${message}`);
-              options.onAgentEnd?.({ label, phase: assignedPhase, result: null });
+              options.onAgentEnd?.({ label, phase: assignedPhase, result: null, model: resolvedModel });
               return null;
             }
           }
           status = "failed";
-          options.onAgentEnd?.({ label, phase: assignedPhase, result: null });
+          options.onAgentEnd?.({ label, phase: assignedPhase, result: null, model: resolvedModel });
           return null;
         } catch (error) {
           if (options.signal?.aborted) {
@@ -375,7 +376,7 @@ export async function runWorkflow<T = unknown>(
           }
           status = "failed";
           log(`agent ${label} failed: ${error instanceof Error ? error.message : String(error)}`);
-          options.onAgentEnd?.({ label, phase: assignedPhase, result: null });
+          options.onAgentEnd?.({ label, phase: assignedPhase, result: null, model: resolvedModel });
           return null;
         }
       }),

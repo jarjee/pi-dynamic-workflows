@@ -245,7 +245,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       const parsed = parseWorkflowScript(script);
       let snapshot: WorkflowSnapshot = createWorkflowSnapshot(parsed.meta);
       const activeWorkflow = options.activeWorkflowStore?.create(snapshot);
-      const display = createToolUpdateWorkflowDisplay(onUpdate, ctx, {
+      const display = createToolUpdateWorkflowDisplay(onUpdate, undefined, {
         ...workflowDisplayOptions,
         showResultPreviews: ctx.ui.getToolsExpanded(),
       });
@@ -302,6 +302,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
                 label: event.label,
                 phase: event.phase,
                 prompt: event.prompt,
+                model: event.model ?? modelRef(ctx.model),
                 status: "running",
               });
               update();
@@ -416,6 +417,11 @@ function normalizeWorkflowScript(script: string): string {
 function isAbortError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return /\babort(?:ed)?\b/i.test(error.message);
+}
+
+function modelRef(model: { provider?: string; id?: string } | undefined): string | undefined {
+  if (!model?.provider || !model.id) return undefined;
+  return `${model.provider}/${model.id}`;
 }
 
 interface RecoveryInfo {
