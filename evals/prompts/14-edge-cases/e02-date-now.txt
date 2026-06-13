@@ -1,0 +1,4 @@
+Call the workflow tool with this script that uses Date.now():
+
+export const meta = { name: "bad", description: "test" }
+const now = Date.now()

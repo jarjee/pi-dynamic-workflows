@@ -1,0 +1,7 @@
+You MUST call the workflow tool with this exact script. Do not modify it. Just call the workflow tool.
+
+export const meta = { name: "bad_rp_maxit", description: "registerPhase maxIterations invalid" }
+
+registerPhase("Test", async () => {
+  return await agent("test", { label: "test", model: "deepseek-v4-flash" })
+}, { maxIterations: 0 })

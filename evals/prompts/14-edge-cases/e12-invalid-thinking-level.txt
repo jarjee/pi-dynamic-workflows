@@ -1,0 +1,4 @@
+You MUST call the workflow tool with this exact script. Do not modify it. Just call the workflow tool.
+
+export const meta = { name: "bad_thinking", description: "Invalid thinking level" }
+return await agent("test", { label: "test", thinkingLevel: "extreme", model: "deepseek-v4-flash" })

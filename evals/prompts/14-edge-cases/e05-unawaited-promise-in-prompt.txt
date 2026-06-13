@@ -1,0 +1,5 @@
+You MUST call the workflow tool with this exact script. Do not modify it. Just call the workflow tool.
+
+export const meta = { name: "bad_promise", description: "Unawaited promise in prompt" }
+const lane = agent("test", { label: "lane", model: "deepseek-v4-flash" })
+return await agent("Synthesize this: " + lane, { label: "synthesis", model: "deepseek-v4-flash" })

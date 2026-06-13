@@ -1,0 +1,5 @@
+You MUST call the workflow tool with this exact script. Do not modify it. Just call the workflow tool.
+
+export const meta = { name: "leak", description: "Leaked spawned agent" }
+const worker = spawn("work forever", { label: "worker", model: "deepseek-v4-flash" })
+return { workerId: worker.id }

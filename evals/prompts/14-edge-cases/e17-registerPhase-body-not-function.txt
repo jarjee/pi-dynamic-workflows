@@ -1,0 +1,5 @@
+You MUST call the workflow tool with this exact script. Do not modify it. Just call the workflow tool.
+
+export const meta = { name: "bad_rp_body", description: "registerPhase body not function" }
+
+registerPhase("Test", "not a function")

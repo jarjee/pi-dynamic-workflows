@@ -1,0 +1,5 @@
+You MUST call the workflow tool with this exact script. Do not modify it. Just call the workflow tool.
+
+export const meta = { name: "bad_return", description: "Return non-cloneable value" }
+const p = await agent("test", { label: "test", model: "deepseek-v4-flash" })
+return { promise: agent("leaked", { label: "leaked", model: "deepseek-v4-flash" }) }

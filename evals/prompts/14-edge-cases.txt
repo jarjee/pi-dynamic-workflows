@@ -1,0 +1,36 @@
+# Edge case definitions for eval 14
+# Format: subcase_name|@filename (prompt loaded from prompts/14-edge-cases/<filename>.txt)
+# Each sub-case checks that a specific error is caught with the expected error message.
+#
+# Lines starting with # are comments. Blank lines are ignored.
+
+# Parser / Meta errors
+e01-missing-meta|@e01-missing-meta.txt
+e02-date-now|@e02-date-now.txt
+e03-new-date|@e03-new-date.txt
+e04-math-random|@e04-math-random.txt
+
+# Promise / handoff errors
+e05-unawaited-promise-in-prompt|@e05-unawaited-promise-in-prompt.txt
+e06-promise-in-handoff|@e06-promise-in-handoff.txt
+
+# Agent option validation
+e07-invalid-weight|@e07-invalid-weight.txt
+e08-unknown-model|@e08-unknown-model.txt
+e09-extension-tools-denied|@e09-extension-tools-denied.txt
+e10-caller-skills-denied|@e10-caller-skills-denied.txt
+e11-project-role-denied|@e11-project-role-denied.txt
+e12-invalid-thinking-level|@e12-invalid-thinking-level.txt
+
+# Workflow-level errors
+e13-zero-agent-calls|@e13-zero-agent-calls.txt
+e14-non-cloneable-return|@e14-non-cloneable-return.txt
+e15-leaked-agent|@e15-leaked-agent.txt
+
+# registerPhase validation
+e16-registerPhase-name-not-string|@e16-registerPhase-name-not-string.txt
+e17-registerPhase-body-not-function|@e17-registerPhase-body-not-function.txt
+e18-registerPhase-options-not-object|@e18-registerPhase-options-not-object.txt
+e19-registerPhase-gate-not-function|@e19-registerPhase-gate-not-function.txt
+e20-registerPhase-maxIterations-invalid|@e20-registerPhase-maxIterations-invalid.txt
+e21-registerPhase-skipIf-not-function|@e21-registerPhase-skipIf-not-function.txt

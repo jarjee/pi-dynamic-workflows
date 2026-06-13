@@ -1,0 +1,3 @@
+Call the workflow tool with this script that is MISSING the meta export:
+
+const x = agent("test", { label: "test", model: "deepseek-v4-flash" })
