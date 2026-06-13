@@ -31,10 +31,7 @@ export interface Subscription {
 const invoices = new Map<string, Invoice>();
 const subscriptions = new Map<string, Subscription>();
 
-export async function generateInvoice(
-  token: string,
-  items: InvoiceLineItem[],
-): Promise<Invoice> {
+export async function generateInvoice(token: string, items: InvoiceLineItem[]): Promise<Invoice> {
   const session = validateSession(token);
   if (!session) throw new Error("Invalid session");
 
@@ -63,10 +60,7 @@ export function getInvoice(invoiceId: string): Invoice | null {
   return invoices.get(invoiceId) ?? null;
 }
 
-export async function createSubscription(
-  token: string,
-  plan: Subscription["plan"],
-): Promise<Subscription> {
+export async function createSubscription(token: string, plan: Subscription["plan"]): Promise<Subscription> {
   const session = validateSession(token);
   if (!session) throw new Error("Invalid session");
 
