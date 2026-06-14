@@ -247,7 +247,10 @@ test("agent detail toggles with space when selected", () => {
   const expandedLine = findLine(lines, "#1");
   assert.ok(expandedLine);
   assert.ok(expandedLine?.includes("▾"), "agent shows ▾ when expanded");
-  assert.ok(expandedLine?.includes("status: done"), "expanded agent shows status detail");
+  assert.ok(
+    lines.some((line) => line.includes("status: done")),
+    "expanded agent shows status detail",
+  );
 
   // Toggle back
   inspector.handleInput(" ");
@@ -273,7 +276,10 @@ test("agent expands with right and collapses with left", () => {
   let lines = bodyLines(inspector);
   const expandedLine = findLine(lines, "#1");
   assert.ok(expandedLine?.includes("▾"), "agent expanded");
-  assert.ok(expandedLine?.includes("error: timeout"), "expanded agent shows error detail");
+  assert.ok(
+    lines.some((line) => line.includes("error: timeout")),
+    "expanded agent shows error detail",
+  );
 
   // Collapse with left
   inspector.handleInput(KEY_LEFT);

@@ -132,11 +132,10 @@ class WorkflowInspector implements Component {
     while (lines.length < 5 + WorkflowInspector.MAX_VISIBLE_ROWS) lines.push(row());
 
     const recentLogs = snapshot.logs.slice(-WorkflowInspector.MAX_LOG_ROWS);
-    if (recentLogs.length > 0) {
-      lines.push(border("├", "─", "┤"));
-      lines.push(row("Recent logs"));
-      for (const log of recentLogs) lines.push(row(`  ${log}`));
-    }
+    lines.push(border("├", "─", "┤"));
+    lines.push(row("Recent logs"));
+    for (const log of recentLogs) lines.push(row(`  ${log}`));
+    while (lines.length < 8 + WorkflowInspector.MAX_VISIBLE_ROWS + WorkflowInspector.MAX_LOG_ROWS) lines.push(row());
 
     lines.push(border("├", "─", "┤"));
     lines.push(row("↑↓/pg select • space/enter toggle • ←/→ collapse/expand • ctrl+o global • esc close"));
@@ -181,7 +180,12 @@ class WorkflowInspector implements Component {
     if (row.type === "agent" && row.agent) {
       const agent = row.agent;
       const expanded = this.expandedAgents.has(agent.id);
-      const detail = !expanded && agent.resultPreview ? ` — ${agent.resultPreview}` : !expanded && agent.error ? ` — ${agent.error}` : "";
+      const detail =
+        !expanded && agent.resultPreview
+          ? ` — ${agent.resultPreview}`
+          : !expanded && agent.error
+            ? ` — ${agent.error}`
+            : "";
       return `${prefix}  ${expanded ? "▾" : "▸"} #${agent.id} ${statusIcon(agent.status)} ${agent.label}${detail}`;
     }
 
@@ -220,15 +224,39 @@ class WorkflowInspector implements Component {
     rows.push({ type: "agent", key: `agent:${agent.id}`, phase, agent });
     if (!this.expandedAgents.has(agent.id)) return;
 
-    rows.push({ type: "agent-detail", key: `agent:${agent.id}:status`, phase, agent, detail: { label: "status", value: agent.status } });
+    rows.push({
+      type: "agent-detail",
+      key: `agent:${agent.id}:status`,
+      phase,
+      agent,
+      detail: { label: "status", value: agent.status },
+    });
     if (agent.model) {
-      rows.push({ type: "agent-detail", key: `agent:${agent.id}:model`, phase, agent, detail: { label: "model", value: agent.model } });
+      rows.push({
+        type: "agent-detail",
+        key: `agent:${agent.id}:model`,
+        phase,
+        agent,
+        detail: { label: "model", value: agent.model },
+      });
     }
     if (agent.error) {
-      rows.push({ type: "agent-detail", key: `agent:${agent.id}:error`, phase, agent, detail: { label: "error", value: agent.error } });
+      rows.push({
+        type: "agent-detail",
+        key: `agent:${agent.id}:error`,
+        phase,
+        agent,
+        detail: { label: "error", value: agent.error },
+      });
     }
     if (agent.resultPreview) {
-      rows.push({ type: "agent-detail", key: `agent:${agent.id}:result`, phase, agent, detail: { label: "result", value: agent.resultPreview } });
+      rows.push({
+        type: "agent-detail",
+        key: `agent:${agent.id}:result`,
+        phase,
+        agent,
+        detail: { label: "result", value: agent.resultPreview },
+      });
     }
   }
 
@@ -278,7 +306,10 @@ class WorkflowInspector implements Component {
     const rows = this.rows();
     const selectable = rows.map((row, index) => ({ row, index })).filter(({ row }) => isSelectable(row));
     if (selectable.length === 0) return;
-    const current = Math.max(0, selectable.findIndex(({ index }) => index === this.selected));
+    const current = Math.max(
+      0,
+      selectable.findIndex(({ index }) => index === this.selected),
+    );
     const next = Math.max(0, Math.min(selectable.length - 1, current + delta * WorkflowInspector.MAX_VISIBLE_ROWS));
     this.selectIndex(selectable[next].index, rows);
   }
