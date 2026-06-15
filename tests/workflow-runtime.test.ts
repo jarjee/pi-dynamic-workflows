@@ -350,6 +350,24 @@ return handoff(lane)
   );
 });
 
+test("runWorkflow parallel() auto-awaits promises for convenience", async () => {
+  const result = await runWorkflow(
+    `export const meta = {
+  name: 'promise_parallel',
+  description: 'Pass already-started promises to parallel'
+}
+
+return await parallel([
+  agent('a', { label: 'a' }),
+  agent('b', { label: 'b' })
+])
+`,
+    { agent: fakeAgent },
+  );
+
+  assert.deepEqual(result.result, ["result:a", "result:b"]);
+});
+
 test("runWorkflow handoff is synchronous and safe in prompts", async () => {
   const result = await runWorkflow(
     `export const meta = {
