@@ -8,7 +8,7 @@ test("createWorkflowTool describes workflow rules and documentation", () => {
   assert.match(tool.promptSnippet ?? "", /export const meta = \{ name, description \}/);
   assert.match(tool.promptSnippet ?? "", /registerPhase/);
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("Plain JavaScript only")));
-  assert.ok(tool.promptGuidelines?.some((line) => line.includes("parallel() takes functions")));
+  assert.ok(tool.promptGuidelines?.some((line) => line.includes("parallel() accepts")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("handoff()")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("Do NOT embed backtick template literals")));
   assert.ok(tool.promptGuidelines?.some((line) => line.includes("Minimal valid workflow")));
