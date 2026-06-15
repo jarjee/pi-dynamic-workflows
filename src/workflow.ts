@@ -396,16 +396,22 @@ export async function runWorkflow<T = unknown>(
   const agent = async (prompt: unknown, agentOptions: unknown = {}) =>
     await spawnInternal(prompt, agentOptions, false).result;
 
-  const parallel = async (thunks: Array<() => Promise<unknown>>) => {
+  const parallel = async (thunks: Array<(() => Promise<unknown>) | Promise<unknown>>) => {
     throwIfAborted();
     if (!Array.isArray(thunks)) throw new TypeError("parallel() expects an array of functions");
-    if (thunks.some((thunk) => typeof thunk !== "function")) {
-      throw new TypeError("parallel() expects an array of functions, not promises. Wrap each call: () => agent(...)");
+    if (
+      thunks.some(
+        (item) =>
+          typeof item !== "function" &&
+          (typeof item !== "object" || item === null || typeof (item as any).then !== "function"),
+      )
+    ) {
+      throw new TypeError("parallel() expects an array of functions or promises. Wrap each call: () => agent(...)");
     }
     return Promise.all(
-      thunks.map(async (thunk, index) => {
+      thunks.map(async (item, index) => {
         try {
-          return await thunk();
+          return typeof item === "function" ? await item() : await item;
         } catch (error) {
           if (options.signal?.aborted) throw new Error("workflow aborted");
           log(`parallel[${index}] failed: ${error instanceof Error ? error.message : String(error)}`);

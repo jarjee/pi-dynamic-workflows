@@ -151,7 +151,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       `## agent() / spawn() rules`,
       "",
       `- Every agent()/spawn() call must include a unique short \`label\` (2-5 words) for readable progress.`,
-      `- parallel() takes functions, not promises: \`await parallel(items.map(item => () => agent(...)))\`. Results return in input order.`,
+      `- parallel() accepts an array of functions or promises. Prefer functions (thunks): \`await parallel(items.map(item => () => agent(...)))\`. Promise syntax works too: \`await parallel(items.map(item => agent(...)))\`. Results return in input order.`,
       `- Failed branches return null. Always filter with \`results.filter(Boolean)\` before passing to downstream agents. Await all upstream lanes before the final synthesis agent.`,
       `- Default subagent tools are read-only ['read', 'grep', 'find', 'ls']; host tools may also be ambient when policy permits. Add 'bash', 'edit', 'write' only for side-effectful lanes.`,
       "",
