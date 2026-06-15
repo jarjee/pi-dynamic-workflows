@@ -63,14 +63,24 @@ const handle = spawn('Design the API contract.', {
 
 ### parallel(thunks)
 
-Run an array of functions concurrently. **Takes functions, not promises** — wrap each call with `() =>`:
+Run an array of functions or promises concurrently. Results are returned in input order. Failed branches return `null`.
+
+**Preferred:** pass functions (thunks) so `parallel` controls when work starts:
 
 ```js
-// Correct:
 const results = await parallel(items.map(item => () => agent(`Review ${item}`, { label: item })))
+```
 
-// Wrong — will throw:
+**Also accepted:** pass already-started promises directly. `parallel` will `await` each one:
+
+```js
 const results = await parallel(items.map(item => agent(`Review ${item}`, { label: item })))
+```
+
+**Either way, always filter nulls before downstream use:**
+
+```js
+const clean = results.filter(Boolean)
 ```
 
 Results are returned in input order. Failed branches return `null`.
