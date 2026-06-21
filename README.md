@@ -53,27 +53,23 @@ A workflow is plain JavaScript. The first statement must export literal metadata
 export const meta = {
   name: 'inspect_project',
   description: 'Inspect a repository and summarize the main modules',
-  phases: [
-    { title: 'Scan' },
-    { title: 'Analyze' },
-  ],
 }
 
-phase('Scan')
-const inventory = await agent('Inspect the repository structure.', {
-  label: 'repo inventory',
+registerPhase('Scan', async () => {
+  return await agent('Inspect the repository structure.', {
+    label: 'repo inventory',
+  })
 })
 
-phase('Analyze')
-const summary = await agent(
-  'Summarize the main modules from this inventory:\n' + inventory,
-  { label: 'module summary' },
-)
-
-return { inventory, summary }
+registerPhase('Analyze', async (inventory) => {
+  return await agent(
+    'Summarize the main modules from this inventory:\n' + inventory,
+    { label: 'module summary' },
+  )
+})
 ```
 
-Phases are discovered as the script runs, so conditional and loop-created phases work naturally. If a branch is skipped, its phase does not show up as an empty progress row.
+Phases are declared top-level with `registerPhase(name, body)`. Each phase receives the previous phase's return value as its argument — no manual wiring, no `[object Promise]` footgun. All existing primitives (`agent`, `spawn`, `parallel`, `pipeline`, `handoff`, `log`) work inside phase bodies.
 
 ### Editor IntelliSense
 
@@ -83,12 +79,13 @@ Reusable workflow files can opt into editor hints for workflow globals:
 /// <reference types="pi-dynamic-workflows/workflow" />
 ```
 
-This declares `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `cwd`, and `budget` for TypeScript-aware editors.
+This declares `registerPhase`, `agent`, `spawn`, `parallel`, `pipeline`, `handoff`, `phase`, `mailbox`, `log`, `args`, `cwd`, `budget`, and `policy` for TypeScript-aware editors.
 
 ### Available globals
 
 | Global | Description |
 | --- | --- |
+| `registerPhase(name, body, opts)` | Declare a top-level phase. Body receives previous phase's return value. Supports `gate`, `maxIterations`, and `skipIf` options. |
 | `spawn(prompt, opts)` | Start an isolated subagent and return a handle `{ id, label, status(), result }` immediately. Use for mailbox communication and status tracking. |
 | `agent(prompt, opts)` | Spawn an isolated subagent and await its result. Returns final text or, with `opts.schema`, a validated object. `opts.tools` can allowlist built-in coding tools. |
 | `parallel(thunks)` | Run an array of `() => agent(...)` thunks concurrently. Results are returned in input order. |
@@ -132,12 +129,7 @@ The `workflow` tool accepts an optional host-enforced `policy` object:
     "defaultTools": ["read", "grep", "find", "ls"],
     "maxConcurrency": 4,
     "hardAbortGraceMs": 2000,
-    "projectRoles": "deny",
-    "modelsByWeight": {
-      "light": "provider/light-model",
-      "medium": "provider/code-model",
-      "heavy": "provider/frontier-model"
-    }
+    "projectRoles": "deny"
   }
 }
 ```
@@ -192,6 +184,35 @@ const summary = await agent('Summarize the prior findings only.', {
 
 Side-effectful tools such as `bash`, `edit`, and `write` must be requested explicitly. Unknown tool names fail closed before the subagent launches.
 
+### registerPhase with gate and retry
+
+Use `gate` and `maxIterations` to validate phase output and retry on failure. When the gate function returns a string (failure), the phase body is retried with the failure message injected into subagent prompts as `<retry>` context:
+
+```js
+registerPhase('Implement', async (plan) => {
+  const ref = handoff(plan)
+  return await parallel(['auth', 'billing'].map(mod => () =>
+    agent('Implement ' + mod + ' from plan:\n' + ref, {
+      label: 'impl-' + mod,
+      model: 'provider/code-model',
+      tools: ['read', 'edit', 'write'],
+    })
+  ))
+}, {
+  gate: async (output, plan) => {
+    const result = await agent('Run npm test and report failures verbatim', {
+      label: 'run-tests',
+      model: 'provider/fast-model',
+      tools: ['bash'],
+    })
+    return result.includes('FAIL') ? result : null
+  },
+  maxIterations: 3,
+})
+```
+
+When all retries are exhausted, the phase returns with `__phaseMeta: { exhausted: true, iteration: N, gateError: '...' }`. Use `skipIf: (input) => boolean` to skip a phase conditionally.
+
 ### Reusable subagent roles
 
 Use `opts.role` to prepend a source-qualified reusable role prompt to a subagent:
@@ -221,31 +242,31 @@ const review = await agent('Review using this map:\n' + mapRef, {
 })
 ```
 
-### Per-agent model selection and weight
+### Per-agent model selection
 
-Use `opts.model` with a `provider/model-id` ref to run a specific subagent on a different configured model, or use `opts.weight` to let runtime policy choose the model:
+Use `opts.model` with a `provider/model-id` ref to run a specific subagent on a configured model. Match model capability to task complexity:
 
 ```js
 const summary = await agent('Summarize this subsystem.', {
   label: 'cheap summary',
-  weight: 'light',
+  model: 'provider/fast-model',
 })
 
 const critique = await agent('Deeply critique the proposed architecture.', {
   label: 'deep critique',
-  weight: 'heavy',
+  model: 'provider/reasoning-model',
   role: 'package:critic',
 })
 ```
 
-Use a light weight for cheap summarization/classification across many items, a medium weight for normal code generation and review, and a heavy weight for architecture, final synthesis, adversarial critique, and quality gates. Explicit model refs must exist in the active Pi model registry; unknown refs fail before the subagent launches.
+Explicit model refs must exist in the active Pi model registry; unknown refs fail before the subagent launches.
 
-`weight` chooses the model-routing size. `stream` remains a deprecated alias for existing scripts. `thinkingLevel` is separate and controls model thinking effort when the selected model supports it:
+`thinkingLevel` controls model thinking effort separately from the model choice, for models that support it:
 
 ```js
 const review = await agent('Review the migration plan carefully.', {
   label: 'careful review',
-  weight: 'heavy',
+  model: 'provider/reasoning-model',
   thinkingLevel: 'high',
 })
 ```
