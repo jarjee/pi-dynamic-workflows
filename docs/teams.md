@@ -30,7 +30,7 @@ Before writing a workflow script, identify:
 3. **File ownership** — Which files/directories does each agent own? Ownership must not overlap for write-capable agents.
 4. **Dependencies** — Which agents need information from others before they can start or continue?
 5. **Communication** — Do agents need to coordinate at runtime (mailbox), or just fan out and converge (parallel)?
-6. **Complexity** — Which lanes need heavy model weights (architecture, synthesis) vs light/medium (implementation, scanning)?
+6. **Complexity** — Which lanes need a heavy/reasoning model (architecture, synthesis) vs a fast/code model (implementation, scanning)?
 
 ### Sizing guidelines
 
@@ -113,12 +113,12 @@ Independent agents work in parallel, results converge through a synthesis agent.
 ```js
 phase('Investigate')
 const findings = await parallel(hypotheses.map(h => () =>
-  agent(`Investigate: ${h}`, { label: h.slice(0, 30), weight: 'medium' })
+  agent(`Investigate: ${h}`, { label: h.slice(0, 30), model: 'provider/code-model' })
 ))
 
 phase('Synthesize')
 const ref = handoff(findings.filter(Boolean))
-return await agent(`Synthesize findings:\n${ref}`, { label: 'synthesis', weight: 'heavy' })
+return await agent(`Synthesize findings:\n${ref}`, { label: 'synthesis', model: 'provider/reasoning-model' })
 ```
 
 **When to use:** Code review, research, debugging hypotheses, audit. Each agent works independently on a different aspect or theory.
@@ -129,12 +129,12 @@ An architect agent designs the contract/interface, then workers implement agains
 
 ```js
 const architect = spawn('Design the data model. Send the schema to peers when done.', {
-  label: 'architect', mailbox: true, tools: ['read', 'write'], weight: 'heavy',
+  label: 'architect', mailbox: true, tools: ['read', 'write'], model: 'provider/reasoning-model',
 })
 
 const workers = modules.map(mod =>
   spawn(`Wait for the architect's schema, then implement ${mod.name}. You own ${mod.dir}.`, {
-    label: `impl ${mod.name}`, mailbox: true, tools: ['read', 'edit', 'write'], weight: 'medium',
+    label: `impl ${mod.name}`, mailbox: true, tools: ['read', 'edit', 'write'], model: 'provider/code-model',
   })
 )
 
@@ -154,26 +154,26 @@ An architect designs interfaces, a test agent writes tests from the spec, an imp
 const architect = spawn(
   `Design the interface for ${feature}. Write types to ${typesDir}.
    Send the contract and behavior description to all peers when ready.`, {
-  label: 'architect', mailbox: true, tools: ['read', 'write'], weight: 'heavy',
+  label: 'architect', mailbox: true, tools: ['read', 'write'], model: 'provider/reasoning-model',
 })
 
 const tester = spawn(
   `Wait for the architect's contract. Write tests to ${testsDir} based on the interface and
    expected behavior. When the implementer notifies you, run the tests and report results.
    You own ${testsDir}.`, {
-  label: 'tester', mailbox: true, tools: ['read', 'write', 'bash'], weight: 'medium',
+  label: 'tester', mailbox: true, tools: ['read', 'write', 'bash'], model: 'provider/code-model',
 })
 
 const implementer = spawn(
   `Wait for the architect's contract. Implement in ${implDir}.
    When done, notify the tester via mailbox_send. You own ${implDir}.`, {
-  label: 'implementer', mailbox: true, tools: ['read', 'write', 'edit'], weight: 'medium',
+  label: 'implementer', mailbox: true, tools: ['read', 'write', 'edit'], model: 'provider/code-model',
 })
 
 const qa = spawn(
   `Review the architect's design for gaps and ambiguity. Once the implementation is ready,
    review code quality, error handling, and edge cases. Read-only — do not edit files.`, {
-  label: 'qa', mailbox: true, tools: ['read', 'grep', 'find'], weight: 'heavy',
+  label: 'qa', mailbox: true, tools: ['read', 'grep', 'find'], model: 'provider/reasoning-model',
 })
 
 // Wire channels: architect broadcasts, implementer notifies tester, QA observes all
@@ -209,7 +209,7 @@ phase('Investigate')
 const findings = await parallel(hypotheses.map(h => () =>
   agent(`Investigate this hypothesis: ${h}\nGather evidence for AND against.`, {
     label: h.slice(0, 40),
-    weight: 'medium',
+    model: 'provider/code-model',
     schema: {
       type: 'object',
       properties: {
@@ -232,7 +232,7 @@ return await agent(
    Identify the most likely root cause.\n${ref}`, {
   label: 'adversarial review',
   role: 'package:critic',
-  weight: 'heavy',
+  model: 'provider/reasoning-model',
   thinkingLevel: 'high',
 })
 ```

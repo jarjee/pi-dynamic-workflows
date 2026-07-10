@@ -9,7 +9,7 @@ These evals are intentionally focused on **Type B** behavior: natural-language p
 - actually invoked the `workflow` tool
 - wrote a valid `registerPhase()` workflow script
 - used correct API patterns (`agent`, `parallel`, `pipeline`, `spawn`, `mailbox`, `handoff`, `schema`, gates)
-- used explicit provider/model refs instead of deprecated `weight`/`stream`
+- used explicit `provider/model` refs (the `weight`/`stream` routing layer was removed)
 - produced sensible task results
 
 The existing unit tests already cover most Type A runtime behavior. The retained `14-edge-cases` eval is a light full-extension regression suite for parse/validation error paths.

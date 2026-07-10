@@ -500,7 +500,7 @@ return handoff('abcdef', { inlineLimit: 3 })
   assert.equal(await import("node:fs/promises").then((fs) => fs.readFile(path, "utf8")), "abcdef");
 });
 
-test("runWorkflow resolves weight to policy model refs", async () => {
+test("runWorkflow passes the explicit model ref to subagents (weight routing removed)", async () => {
   const calls: Array<{ model?: string }> = [];
   const agentRunner = {
     async run(_prompt: string, options: { model?: string }): Promise<string> {
@@ -511,13 +511,13 @@ test("runWorkflow resolves weight to policy model refs", async () => {
 
   await runWorkflow(
     `export const meta = {
-  name: 'weight_model_ref',
-  description: 'Route by model weight'
+  name: 'model_ref',
+  description: 'Pass explicit model ref'
 }
 
-return await agent('summarize', { label: 'summary', weight: 'light' })
+return await agent('summarize', { label: 'summary', model: 'provider/light-model' })
 `,
-    { agent: agentRunner, policy: { modelsByWeight: { light: "provider/light-model" } } },
+    { agent: agentRunner },
   );
 
   assert.deepEqual(calls, [{ model: "provider/light-model" }]);
@@ -1003,4 +1003,44 @@ test("registerPhase wraps body subagent prompts with <iteration> context on retr
   assert.ok(second.includes("FAIL: expected X got Y"), "retry block contains gate failure");
   assert.ok(second.includes("</retry>"), "retry tag closed");
   assert.ok(second.includes("write code and run tests"), "original prompt preserved on retry");
+});
+
+test("registerPhase announces all phases up front via onPhaseRegistered before any subagent runs", async () => {
+  const registered: string[] = [];
+  let agentsRunBeforeFirstRegistration = 0;
+  let registrationStarted = false;
+  const recordingAgent = {
+    async run(prompt: string, _opts?: Record<string, unknown>): Promise<string> {
+      if (!registrationStarted) agentsRunBeforeFirstRegistration++;
+      return `result:${prompt}`;
+    },
+  };
+
+  await runWorkflow(
+    'export const meta = { name: "upfront_phases", description: "Phases announced up front" }\n' +
+      "\n" +
+      'registerPhase("Scan", async () => {\n' +
+      '  return await agent("scan", { label: "scan" })\n' +
+      "})\n" +
+      "\n" +
+      'registerPhase("Review", async (scan) => {\n' +
+      '  return await agent("review: " + scan, { label: "review" })\n' +
+      "})\n" +
+      "\n" +
+      'registerPhase("Synthesize", async (review) => {\n' +
+      '  return await agent("synth: " + review, { label: "synth" })\n' +
+      "})\n",
+    {
+      agent: recordingAgent,
+      onPhaseRegistered(title) {
+        if (registered.length === 0) registrationStarted = true;
+        registered.push(title);
+      },
+    },
+  );
+
+  // All three phase names are announced in declaration order...
+  assert.deepEqual(registered, ["Scan", "Review", "Synthesize"]);
+  // ...and the announcement started before the first subagent ran.
+  assert.equal(agentsRunBeforeFirstRegistration, 0, "onPhaseRegistered fired before any agent.run call");
 });

@@ -183,7 +183,7 @@ Important eval constraints:
   - cheap/simple subagents: ${LIGHT_MODEL}
   - normal/code-review subagents: ${MEDIUM_MODEL}
   - synthesis/team/planning subagents: ${HEAVY_MODEL}
-- Do not use deprecated weight or stream options.
+- Use explicit provider/model refs in every agent/spawn call (weight/stream routing was removed).
 - Use handoff() only within phase bodies; cross-phase data flows via registerPhase input/output.
 PROMPT
 )

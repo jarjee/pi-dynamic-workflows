@@ -4,7 +4,7 @@ export type { AgentRunOptions, AgentRunResult, WorkflowAgentOptions } from "./ag
 export { WorkflowAgent } from "./agent.js";
 export type {
   WorkflowAgentSnapshot,
-  WorkflowAgentStatus,
+  WorkflowAgentSnapshotStatus,
   WorkflowDisplay,
   WorkflowDisplayOptions,
   WorkflowSnapshot,
@@ -18,7 +18,7 @@ export {
   renderWorkflowLines,
   renderWorkflowText,
 } from "./display.js";
-export type { WorkflowHostToolPolicy, WorkflowPolicy, WorkflowStream, WorkflowWeight } from "./policy.js";
+export type { WorkflowHostToolPolicy, WorkflowPolicy } from "./policy.js";
 export { normalizeWorkflowPolicy } from "./policy.js";
 export type { ProjectRolePolicy, ResolvedWorkflowRole, WorkflowRoleOptions, WorkflowRoleSource } from "./roles.js";
 export { formatWorkflowRoleInstructions, resolveWorkflowRole } from "./roles.js";
@@ -26,6 +26,7 @@ export type { StructuredOutputCapture, StructuredOutputToolOptions } from "./str
 export { createStructuredOutputTool } from "./structured-output.js";
 export type {
   AgentOptions,
+  AgentRetryOptions,
   WorkflowMeta,
   WorkflowMetaPhase,
   WorkflowRunOptions,

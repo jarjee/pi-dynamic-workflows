@@ -15,13 +15,13 @@ registerPhase("Name", async (input) => {
   // input = previous phase's return value
   // All existing primitives work here: agent(), spawn(), parallel(), handoff(), log()
   return await agent("do work", {
-    model: "deepseek-v4-pro",
+    model: "provider/code-model",
     tools: ["read", "edit", "write", "bash"]
   })
 }, {
   gate: async (output, upstreamOutput) => {
     // Validates the phase output. Returns null (pass) or string (fail).
-    const result = await agent("run tests", { model: "deepseek-v4-flash", tools: ["bash"] })
+    const result = await agent("run tests", { model: "provider/fast-model", tools: ["bash"] })
     return result.includes("FAIL") ? result : null
   },
   maxIterations: 3,
@@ -45,9 +45,9 @@ Still available WITHIN a phase body for passing data to subagents inside that ph
 
 ```js
 registerPhase("Scan", async () => {
-  const data = await agent("scan", { model: "deepseek-v4-flash" })
+  const data = await agent("scan", { model: "provider/fast-model" })
   const ref = handoff(data)   // serializes large outputs for downstream agents
-  await agent("analyze: " + ref, { model: "deepseek-v4-pro" })
+  await agent("analyze: " + ref, { model: "provider/code-model" })
   return data   // flows to next phase
 })
 ```
@@ -101,7 +101,7 @@ export const meta = { name: "implement_feature", description: "Plan, implement w
 // Phase 1: Plan
 registerPhase("Plan", async () => {
   return await agent("Create a detailed migration plan", {
-    model: "gpt-5.5", thinkingLevel: "high", role: "package:planner"
+    model: "provider/reasoning-model", thinkingLevel: "high", role: "package:planner"
   })
 })
 
@@ -110,7 +110,7 @@ registerPhase("Implement", async (plan) => {
   const ref = handoff(plan)
   return await parallel(["auth", "billing", "notifications"].map(mod => () =>
     agent("Implement " + mod + " from plan:\n" + ref, {
-      model: "deepseek-v4-pro",
+      model: "provider/code-model",
       label: "impl-" + mod,
       tools: ["read", "edit", "write"],
     })
@@ -118,7 +118,7 @@ registerPhase("Implement", async (plan) => {
 }, {
   gate: async (output, plan) => {
     const result = await agent("Run `npm test` and report failures verbatim with line numbers", {
-      model: "deepseek-v4-flash", tools: ["bash"]
+      model: "provider/fast-model", tools: ["bash"]
     })
     return result.includes("FAIL") ? result : null
   },
@@ -128,14 +128,14 @@ registerPhase("Implement", async (plan) => {
 // Phase 3: Validate
 registerPhase("Validate", async (implOutput) => {
   return await agent("Review implementation quality:\n" + handoff(implOutput), {
-    model: "gpt-5.5", role: "package:reviewer", thinkingLevel: "high"
+    model: "provider/reasoning-model", role: "package:reviewer", thinkingLevel: "high"
   })
 })
 
 // Phase 4: Synthesize
 registerPhase("Synthesize", async (review) => {
   return await agent("Executive summary from review:\n" + handoff(review), {
-    model: "gpt-5.5", role: "package:synthesizer"
+    model: "provider/reasoning-model", role: "package:synthesizer"
   })
 })
 ```
@@ -146,12 +146,12 @@ registerPhase("Synthesize", async (review) => {
 registerPhase("Implement with team", async (plan) => {
   const arch = spawn("Design interface from plan:\n" + plan, {
     label: "architect", mailbox: true,
-    model: "gpt-5.5", thinkingLevel: "high",
+    model: "provider/reasoning-model", thinkingLevel: "high",
   })
   const workers = ["auth", "billing", "notifications"].map(mod =>
     spawn("Implement " + mod, {
       label: "worker-" + mod, mailbox: true,
-      model: "deepseek-v4-pro",
+      model: "provider/code-model",
       tools: ["read", "edit", "write"],
     })
   )
@@ -171,23 +171,22 @@ registerPhase("Implement with team", async (plan) => {
 | `phase("Name"); await agent(...)` interspersed | `registerPhase("Name", async (input) => { ... })` at top level |
 | `handoff()` used between phases → `[object Promise]` | `handoff()` stays WITHIN a phase; cross-phase data flows automatically |
 | DAG shape invisible until execution | All phases collected synchronously; full shape known before first agent runs |
-| `weight: "light"` / `weight: "heavy"` | `model: "deepseek-v4-flash"` — explicit model ref, no routing layer |
+| Ad-hoc model hints | `model: "provider/model-id"` — explicit model ref on every agent/spawn call |
 | Validation gates ad-hoc | `gate` sub-lambda on phase, runtime-managed iteration+retry context |
-| `stream` (deprecated alias) | Removed entirely |
 
 ## What stays the same
 
 - `agent()`, `spawn()`, `parallel()`, `pipeline()`, `handoff()`, `log()`, `mailbox` — all unchanged inside phase bodies
 - `tools`, `label`, `thinkingLevel`, `role`, `schema`, `retry`, `timeoutSeconds` — all unchanged on `agent()`/`spawn()` calls
-- `policy` — unchanged (except `modelsByWeight`/`modelsByStream` removed)
-- `args`, `cwd`, `budget`, `isUncatchable()` — unchanged
+- `policy` — unchanged
+- `args`, `cwd`, `budget`, `console` — unchanged
 
 ## Model reference guide
 
-| Role | Recommended model |
-|------|-------------------|
-| Cheap scans, grep, classification, fan-out | `deepseek-v4-flash`, `anthropic-haiku`, `gpt-mini` |
-| Code generation, review, implementation | `deepseek-v4-pro`, `anthropic-sonnet`, `kimi-2.5` / `kimi-2.6` |
-| Architecture, adversarial review, final synthesis | `anthropic-opus-4-7`, `gpt-5.5` |
+| Role | Recommended model ref |
+|------|------------------------|
+| Cheap scans, grep, classification, fan-out | a fast configured model via `provider/fast-model` |
+| Code generation, review, implementation | a stronger configured code model via `provider/code-model` |
+| Architecture, adversarial review, final synthesis | a configured reasoning/frontier model via `provider/reasoning-model` |
 
 Use `thinkingLevel: "high"` with heavy models for complex reasoning tasks.

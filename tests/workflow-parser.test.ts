@@ -6,7 +6,7 @@ const validScript = `export const meta = {
   name: 'demo_workflow',
   description: 'A useful workflow',
   whenToUse: 'When testing parser behavior',
-  phases: [{ title: 'Scan', detail: 'Collect inputs', model: 'default' }]
+  phases: [{ title: 'Scan', detail: 'Collect inputs' }]
 }
 
 phase('Scan')
@@ -17,7 +17,7 @@ test("parseWorkflowScript accepts literal workflow metadata", () => {
   const parsed = parseWorkflowScript(validScript);
   assert.equal(parsed.meta.name, "demo_workflow");
   assert.equal(parsed.meta.description, "A useful workflow");
-  assert.deepEqual(parsed.meta.phases, [{ title: "Scan", detail: "Collect inputs", model: "default" }]);
+  assert.deepEqual(parsed.meta.phases, [{ title: "Scan", detail: "Collect inputs" }]);
   assert.match(parsed.body, /phase\('Scan'\)/);
   assert.doesNotMatch(parsed.body, /export const meta/);
 });

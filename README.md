@@ -47,7 +47,7 @@ Press `Esc` to cancel a running workflow. Active subagents are aborted immediate
 
 ## Workflow script shape
 
-A workflow is plain JavaScript. The first statement must export literal metadata. `name` and `description` are required. `phases` is optional documentation for an expected outline; if present, it must be an array of objects with title strings, e.g. `{ title: 'Scan' }`, not an array of strings. The live progress view is driven by `phase(...)` calls at runtime, so most generated workflows should omit `meta.phases` and call `phase(...)` as work starts:
+A workflow is plain JavaScript. The first statement must export literal metadata. `name` and `description` are required. `phases` is optional static documentation for an expected outline; if present, it must be an array of objects with title strings, e.g. `{ title: 'Scan' }`, not an array of strings. The live progress view is driven by `registerPhase(...)` declarations: place all `registerPhase()` calls at the top level of the script body, synchronously, before any top-level `await` — the runtime announces the full phase outline up front before the first subagent runs. Most generated workflows should omit `meta.phases` and declare phases with `registerPhase(...)`:
 
 ```js
 export const meta = {
@@ -79,7 +79,7 @@ Reusable workflow files can opt into editor hints for workflow globals:
 /// <reference types="pi-dynamic-workflows/workflow" />
 ```
 
-This declares `registerPhase`, `agent`, `spawn`, `parallel`, `pipeline`, `handoff`, `phase`, `mailbox`, `log`, `args`, `cwd`, `budget`, and `policy` for TypeScript-aware editors.
+This declares `registerPhase`, `agent`, `spawn`, `parallel`, `pipeline`, `handoff`, `phase`, `mailbox`, `log`, `args`, `cwd`, `budget`, `policy`, and `console` for TypeScript-aware editors.
 
 ### Available globals
 
@@ -92,11 +92,12 @@ This declares `registerPhase`, `agent`, `spawn`, `parallel`, `pipeline`, `handof
 | `pipeline(items, ...stages)` | Run each item through sequential stages while items fan out. Each stage receives `(prev, original, index)`. |
 | `handoff(value, opts)` | Return small values inline, or write large values to a mode-0600 temp artifact and return read instructions. |
 | `mailbox` | Supervisor mailbox API for spawned communicating agents: `allow`, `connect`, and `send`. |
-| `phase(title)` | Mark the current phase. Used for grouping in the live progress view. |
+| `phase(title)` | Mark a sub-phase inside a phase body for progress grouping. Top-level phases are declared with `registerPhase`. |
 | `log(message)` | Append a workflow-level log line. |
 | `args` | Optional JSON value passed in via the tool's `args` parameter. |
 | `policy` | Runtime-enforced workflow policy selected by the host/tool call. |
 | `cwd`, `process.cwd()` | Current working directory for subagents. |
+| `console` | Deterministic console shim (`log`/`info`/`warn`/`error` append to workflow logs). |
 | `budget` | `{ total, spent(), remaining() }` token budget tracker. |
 
 ### Determinism rules
@@ -329,6 +330,11 @@ Subagents run in fresh in-memory Pi sessions with the standard coding tools, so 
 | `src/agent.ts` | `WorkflowAgent`, an in-memory Pi subagent runner. |
 | `src/structured-output.ts` | Terminating structured-output tool backed by TypeBox/JSON Schema. |
 | `src/display.ts` | Workflow snapshots and compact text renderers. |
+| `src/workflow-inspector.ts` | Interactive TUI inspector for completed/running workflows. |
+| `src/policy.ts` | Runtime policy normalization (`defaultTools`, `maxConcurrency`, etc.). |
+| `src/roles.ts` | Resolves `package:`/`user:`/`project:` reusable role prompts. |
+| `src/validators.ts` | Shared runtime validators (string/number/array guards). |
+| `src/paths.ts` | Shared package-root path constants. |
 | `extensions/workflow.ts` | The Pi extension entrypoint. |
 
 ## Development

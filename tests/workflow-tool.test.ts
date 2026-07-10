@@ -29,7 +29,6 @@ test("createWorkflowTool accepts runtime policy arguments", () => {
       maxConcurrency: 2,
       hardAbortGraceMs: 0,
       projectRoles: "allow",
-      modelsByWeight: { light: "provider/light-model" },
       hostTools: ["ext_search"],
     },
   });
@@ -39,8 +38,6 @@ test("createWorkflowTool accepts runtime policy arguments", () => {
     maxConcurrency: 2,
     hardAbortGraceMs: 0,
     projectRoles: "allow",
-    modelsByWeight: { light: "provider/light-model" },
-    modelsByStream: undefined,
     mailboxPauseTimeoutSeconds: undefined,
     hostTools: ["ext_search"],
   });

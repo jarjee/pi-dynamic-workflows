@@ -42,7 +42,7 @@ Spawn an isolated subagent and await its result. Returns the final assistant tex
 const result = await agent('Review the auth module for security issues.', {
   label: 'auth review',
   tools: ['read', 'grep', 'find', 'ls'],
-  weight: 'medium',
+  model: 'provider/code-model',
 })
 ```
 
@@ -54,7 +54,7 @@ Start a subagent and return a handle immediately. Use when you need `id` (for ma
 const handle = spawn('Design the API contract.', {
   label: 'architect',
   mailbox: true,
-  weight: 'heavy',
+  model: 'provider/reasoning-model',
 })
 // handle.id, handle.label, handle.status(), handle.result (Promise)
 ```
@@ -141,23 +141,13 @@ Supervisor API for wiring communication between spawned agents. See [teams docs]
 
 Token budget tracker: `{ total, spent(), remaining() }`. `total` is `null` when no budget is set. `remaining()` returns `Infinity` when unbounded.
 
-### isUncatchable(error)
-
-Check if an error is a workflow abort signal. Re-throw these from any `try/catch` in your workflow script:
-
-```js
-try { ... } catch (e) { if (isUncatchable(e)) throw e; /* handle */ }
-```
-
 ## Agent options reference
 
 | Option | Type | Description |
 |--------|------|-------------|
 | `label` | `string` | **Required.** Unique 2-5 word label for progress display and recovery. |
 | `tools` | `string[]` | Built-in tool allowlist. Default: `['read', 'grep', 'find', 'ls']`. Use `[]` for no tools. Add `bash`, `edit`, `write` only for side effects. |
-| `weight` | `'light' \| 'medium' \| 'heavy'` | Model-routing size. Light for cheap fan-out, medium for code work, heavy for synthesis/architecture. |
-| `stream` | `'light' \| 'medium' \| 'heavy'` | Deprecated alias for `weight`; kept for existing workflow scripts. |
-| `model` | `string` | Explicit `provider/model-id`. Overrides weight. Must exist in the Pi model registry. |
+| `model` | `string` | Explicit `provider/model-id`. Must exist in the Pi model registry. |
 | `thinkingLevel` | `string` | Model thinking effort: `'off'`, `'minimal'`, `'low'`, `'medium'`, `'high'`, `'xhigh'`. |
 | `role` | `string` | Source-qualified reusable role: `package:reviewer`, `package:critic`, `package:planner`, `package:synthesizer`, `package:scout`, `package:worker`. |
 | `schema` | `object` | JSON Schema for structured output. Subagent must call `structured_output`. Returns validated object or `null`. |
@@ -213,15 +203,10 @@ The `policy` parameter controls runtime defaults:
   hardAbortGraceMs: 2000,                          // cleanup delay after abort
   projectRoles: 'deny',                            // 'deny' | 'allow'
   mailboxPauseTimeoutSeconds: 1800,                // mailbox pause timeout
-  modelsByWeight: {
-    light: 'provider/cheap-model',
-    medium: 'provider/code-model',
-    heavy: 'provider/frontier-model',
-  },
 }
 ```
 
-Scripts read the frozen `policy` global but cannot override enforcement. Script-level `tools`, `weight`, and `model` requests narrow within policy bounds.
+Scripts read the frozen `policy` global but cannot override enforcement. Script-level `tools` requests narrow within policy bounds. Each subagent picks its model via the `model` option.
 
 ## Partial recovery
 
@@ -241,4 +226,4 @@ For reusable `.workflow.js` files:
 /// <reference types="pi-dynamic-workflows/workflow" />
 ```
 
-Declares `agent`, `spawn`, `parallel`, `pipeline`, `handoff`, `phase`, `log`, `mailbox`, `args`, `cwd`, `budget`, `policy`, and `isUncatchable` for TypeScript-aware editors.
+Declares `registerPhase`, `agent`, `spawn`, `parallel`, `pipeline`, `handoff`, `phase`, `log`, `mailbox`, `args`, `cwd`, `budget`, `policy`, and `console` for TypeScript-aware editors.

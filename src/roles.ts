@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { agentsDir } from "./paths.js";
 
 export type WorkflowRoleSource = "package" | "user" | "project";
 export type ProjectRolePolicy = "deny" | "allow";
@@ -19,8 +19,7 @@ export interface ResolvedWorkflowRole {
   prompt: string;
 }
 
-const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const defaultPackageDir = join(packageRoot, "agents");
+const defaultPackageDir = agentsDir;
 
 export async function resolveWorkflowRole(
   ref: string,
@@ -37,7 +36,13 @@ export async function resolveWorkflowRole(
 }
 
 export function formatWorkflowRoleInstructions(role: ResolvedWorkflowRole): string {
-  return [`Role ${role.ref}:`, role.prompt.trim()].join("\n\n");
+  return [`Role ${role.ref}:`, stripFrontmatter(role.prompt).trim()].join("\n\n");
+}
+
+/** Strip leading YAML frontmatter (--- ... ---) from a role prompt so it is not injected as instructions. */
+function stripFrontmatter(prompt: string): string {
+  const match = prompt.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
+  return match ? prompt.slice(match[0].length) : prompt;
 }
 
 function parseRoleRef(ref: string): { source: WorkflowRoleSource; name: string } {

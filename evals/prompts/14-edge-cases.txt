@@ -15,7 +15,7 @@ e05-unawaited-promise-in-prompt|@e05-unawaited-promise-in-prompt.txt
 e06-promise-in-handoff|@e06-promise-in-handoff.txt
 
 # Agent option validation
-e07-invalid-weight|@e07-invalid-weight.txt
+e07-bare-model-ref|@e07-bare-model-ref.txt
 e08-unknown-model|@e08-unknown-model.txt
 e09-extension-tools-denied|@e09-extension-tools-denied.txt
 e10-caller-skills-denied|@e10-caller-skills-denied.txt

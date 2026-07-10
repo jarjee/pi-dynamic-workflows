@@ -1,7 +1,8 @@
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { type Component, matchesKey, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ActiveWorkflow } from "./active-workflow.js";
-import type { WorkflowAgentSnapshot, WorkflowAgentStatus, WorkflowSnapshot } from "./display.js";
+import { statusIcon, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
+import { uniqueStrings } from "./validators.js";
 
 interface InspectorRow {
   type: "phase" | "agent" | "agent-detail" | "log" | "result";
@@ -385,7 +386,7 @@ function headerStatus(snapshot: WorkflowSnapshot): string {
 }
 
 function phaseNames(snapshot: WorkflowSnapshot): string[] {
-  return unique([
+  return uniqueStrings([
     ...snapshot.phases,
     ...(snapshot.currentPhase ? [snapshot.currentPhase] : []),
     ...snapshot.agents.map((agent) => agent.phase).filter((phase): phase is string => Boolean(phase)),
@@ -411,23 +412,4 @@ function phaseStatusIcon(stats: ReturnType<typeof agentStats>): string {
   if (stats.running > 0) return "▶";
   if (stats.skipped > 0) return "-";
   return "✓";
-}
-
-function statusIcon(status: WorkflowAgentStatus): string {
-  switch (status) {
-    case "queued":
-      return "○";
-    case "running":
-      return "●";
-    case "done":
-      return "✓";
-    case "error":
-      return "✗";
-    case "skipped":
-      return "-";
-  }
-}
-
-function unique(values: string[]): string[] {
-  return [...new Set(values)];
 }

@@ -1,7 +1,6 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -14,6 +13,7 @@ import {
   renderWorkflowText,
   type WorkflowSnapshot,
 } from "./display.js";
+import { docsDir, packageRoot } from "./paths.js";
 import { normalizeWorkflowPolicy, type WorkflowPolicy } from "./policy.js";
 import { parseWorkflowScript, runWorkflow, type WorkflowRunResult } from "./workflow.js";
 
@@ -25,20 +25,6 @@ const workflowPolicySchema = Type.Optional(
     hardAbortGraceMs: Type.Optional(Type.Number({ minimum: 0 })),
     projectRoles: Type.Optional(Type.Union([Type.Literal("deny"), Type.Literal("allow")])),
     mailboxPauseTimeoutSeconds: Type.Optional(Type.Number({ minimum: 0 })),
-    modelsByWeight: Type.Optional(
-      Type.Object({
-        light: Type.Optional(Type.String()),
-        medium: Type.Optional(Type.String()),
-        heavy: Type.Optional(Type.String()),
-      }),
-    ),
-    modelsByStream: Type.Optional(
-      Type.Object({
-        light: Type.Optional(Type.String()),
-        medium: Type.Optional(Type.String()),
-        heavy: Type.Optional(Type.String()),
-      }),
-    ),
   }),
 );
 
@@ -66,10 +52,6 @@ const workflowDisplayOptions = {
   maxLogs: 1,
   showResultPreviews: false,
 } as const;
-
-const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const docsDir = join(packageRoot, "docs");
-const _docPath = join(packageRoot, "DOCS.md");
 
 const WORKFLOW_MINIMAL_EXAMPLE = [
   'export const meta = { name: "example", description: "..." }',
@@ -123,6 +105,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       `# Phase Registration DSL`,
       "",
       `Use \`registerPhase(name, body, options?)\` to declare phases at the top level. Phases execute in declaration order. The body receives the previous phase's return value. The body's return value flows to the next phase automatically — no manual wiring needed. This kills the [object Promise] footgun at its source.`,
+      `Place ALL registerPhase() calls at the top level of the script body, synchronously, before any top-level await. registerPhase calls placed after a top-level await will not appear in the phase outline until that await resolves.`,
       "",
       `All existing primitives work inside phase bodies: agent(), spawn(), parallel(), pipeline(), handoff(), log(), mailbox.`,
       "",
@@ -295,6 +278,12 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
               snapshot.currentPhase = title;
               recordPhase(title);
               update();
+            },
+            onPhaseRegistered(title) {
+              // Record the full registered phase outline up front (without
+              // changing currentPhase) so the display shows all phases
+              // before the execution loop reaches each one.
+              recordPhase(title);
             },
             onAgentStart(event) {
               if (signal?.aborted) throw new Error("Workflow was aborted");

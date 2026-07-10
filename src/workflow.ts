@@ -7,14 +7,14 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { Node } from "acorn";
 import { parse } from "acorn";
 import { type TSchema, Type } from "typebox";
-import { WorkflowAgent, type WorkflowAgentOptions } from "./agent.js";
-import { normalizeWorkflowPolicy, type WorkflowPolicy, type WorkflowWeight } from "./policy.js";
+import { type AgentRunOptions, WorkflowAgent, type WorkflowAgentOptions } from "./agent.js";
+import { normalizeWorkflowPolicy, type WorkflowPolicy } from "./policy.js";
 import { formatWorkflowRoleInstructions, resolveWorkflowRole, type WorkflowRoleOptions } from "./roles.js";
+import { optionalPositiveNumber, optionalString, optionalStringArray, requireString } from "./validators.js";
 
 export interface WorkflowMetaPhase {
   title: string;
   detail?: string;
-  model?: string;
 }
 
 export interface WorkflowMeta {
@@ -35,6 +35,8 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
   policy?: WorkflowPolicy;
   onLog?: (message: string) => void;
   onPhase?: (title: string) => void;
+  /** Fired once per registered phase (in declaration order) before the execution loop starts, so hosts can render the full phase outline up front. */
+  onPhaseRegistered?: (title: string) => void;
   onAgentStart?: (event: { label: string; phase?: string; prompt: string; model?: string }) => void;
   onAgentEnd?: (event: { label: string; phase?: string; result: unknown; model?: string }) => void;
 }
@@ -60,16 +62,10 @@ export interface AgentOptions<TSchemaDef extends TSchema | undefined = TSchema |
   phase?: string;
   schema?: TSchemaDef;
   model?: string;
-  /** Model-routing weight; host policy may map this to a model. */
-  weight?: WorkflowWeight;
-  /** @deprecated Use weight. */
-  stream?: WorkflowWeight;
   /** Model thinking effort for this subagent. */
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   /** Enable runtime mailbox tools for communicating workflow agents. */
   mailbox?: boolean | { peers?: string[] };
-  isolation?: "worktree";
-  agentType?: string;
   /** Built-in coding tools to expose to this subagent. Omit to use the runtime default; [] exposes no coding tools. */
   tools?: string[];
   /** Maximum wall-clock time for each subagent attempt. */
@@ -286,7 +282,7 @@ export async function runWorkflow<T = unknown>(
       limiter(async () => {
         status = "running";
         state.agentCount++;
-        const resolvedModel = normalizedOptions.model ?? modelForWeight(normalizedOptions.weight, policy);
+        const resolvedModel = normalizedOptions.model;
         options.onAgentStart?.({ label, phase: assignedPhase, prompt: taskPrompt, model: resolvedModel });
         const roleInstructions = normalizedOptions.role
           ? formatWorkflowRoleInstructions(
@@ -302,37 +298,38 @@ export async function runWorkflow<T = unknown>(
           for (let attempt = 1; attempt <= retry.attempts; attempt++) {
             const attemptSignal = createAttemptSignal(options.signal, normalizedOptions.timeoutSeconds);
             try {
-              const result = await agentRunner.run(taskPrompt, {
-                label,
-                phase: assignedPhase,
-                stream: normalizedOptions.weight,
-                schema: normalizedOptions.schema,
-                model: normalizedOptions.model ?? modelForWeight(normalizedOptions.weight, policy),
-                thinkingLevel: normalizedOptions.thinkingLevel,
-                tools: normalizedOptions.tools,
-                signal: attemptSignal.signal,
-                customTools: mailboxEnabled
-                  ? createMailboxTools(
-                      id,
-                      label,
-                      () => status,
-                      () => mailboxPeerDetails(id),
-                      (to, message) => {
-                        const agent = mailboxAgent(id);
-                        if (!agent.peers.has(to)) throw new Error(`Mailbox peer not allowed: ${to}`);
-                        return sendMailboxMessage(id, label, to, message);
-                      },
-                      pauseAgent,
-                    )
-                  : undefined,
-                instructions: buildAgentInstructions(
-                  assignedPhase,
-                  normalizedOptions,
-                  roleInstructions,
-                  mailboxEnabled ? buildMailboxIdentityInstructions(id, label) : undefined,
-                  mailboxEnabled ? takeMailboxDeliveryInstructions(id) : undefined,
-                ),
-              } as any);
+              const result = await agentRunner.run(
+                taskPrompt,
+                toAgentRunOptions({
+                  label,
+                  schema: normalizedOptions.schema,
+                  model: normalizedOptions.model,
+                  thinkingLevel: normalizedOptions.thinkingLevel,
+                  tools: normalizedOptions.tools,
+                  signal: attemptSignal.signal,
+                  customTools: mailboxEnabled
+                    ? createMailboxTools(
+                        id,
+                        label,
+                        () => status,
+                        () => mailboxPeerDetails(id),
+                        (to, message) => {
+                          const agent = mailboxAgent(id);
+                          if (!agent.peers.has(to)) throw new Error(`Mailbox peer not allowed: ${to}`);
+                          return sendMailboxMessage(id, label, to, message);
+                        },
+                        pauseAgent,
+                      )
+                    : undefined,
+                  instructions: buildAgentInstructions(
+                    assignedPhase,
+                    normalizedOptions,
+                    roleInstructions,
+                    mailboxEnabled ? buildMailboxIdentityInstructions(id, label) : undefined,
+                    mailboxEnabled ? takeMailboxDeliveryInstructions(id) : undefined,
+                  ),
+                }),
+              );
               attemptSignal.cleanup();
               throwIfAborted();
               state.spent += estimateTokens(result);
@@ -540,6 +537,14 @@ export async function runWorkflow<T = unknown>(
     // Execute registered phases
     let result = scriptResult;
     if (phaseDescriptors.length > 0) {
+      // Announce all registered phases up front so the host can render the
+      // full outline before the first subagent starts. Without this, the
+      // execution loop below only reveals phase N when it reaches phase N,
+      // so phases appear incrementally.
+      for (const descriptor of phaseDescriptors) {
+        if (!state.phases.includes(descriptor.name)) state.phases.push(descriptor.name);
+        options.onPhaseRegistered?.(descriptor.name);
+      }
       let input: unknown = scriptResult;
       for (const descriptor of phaseDescriptors) {
         phase(descriptor.name);
@@ -833,16 +838,6 @@ function createLimiter(limit: number) {
   };
 }
 
-function requireString(value: unknown, name: string): string {
-  if (typeof value !== "string") throw new TypeError(`${name} must be a string`);
-  return value;
-}
-
-function optionalString(value: unknown, name: string): string | undefined {
-  if (value === undefined) return undefined;
-  return requireString(value, name);
-}
-
 function normalizeAgentOptions(value: unknown): AgentOptions {
   if (!value || typeof value !== "object") throw new TypeError("agent options must be an object");
   const options = value as AgentOptions;
@@ -857,13 +852,7 @@ function normalizeAgentOptions(value: unknown): AgentOptions {
     label: optionalString(options.label, "agent label"),
     phase: optionalString(options.phase, "agent phase"),
     model: optionalString(options.model, "agent model"),
-    weight: optionalWeight(
-      options.weight ?? options.stream,
-      options.weight === undefined ? "agent stream alias" : "agent weight",
-    ),
     thinkingLevel: optionalThinkingLevel(options.thinkingLevel),
-    isolation: options.isolation,
-    agentType: optionalString(options.agentType, "agent type"),
     tools: optionalStringArray(options.tools, "agent tools"),
     timeoutSeconds: optionalPositiveNumber(options.timeoutSeconds, "agent timeoutSeconds"),
     retry: normalizeAgentRetryShape(options.retry),
@@ -878,20 +867,6 @@ function normalizeMailboxOptions(value: unknown): AgentOptions["mailbox"] {
   if (!value || typeof value !== "object") throw new TypeError("agent mailbox must be true or an object");
   const peers = optionalStringArray((value as { peers?: unknown }).peers, "agent mailbox.peers");
   return { peers };
-}
-
-function optionalStringArray(value: unknown, name: string): string[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) throw new TypeError(`${name} must be an array of strings`);
-  return Array.from(value, (item, index) => requireString(item, `${name}[${index}]`));
-}
-
-function optionalWeight(value: unknown, name: string): WorkflowWeight | undefined {
-  if (value === undefined) return undefined;
-  if (value !== "light" && value !== "medium" && value !== "heavy") {
-    throw new TypeError(`${name} must be "light", "medium", or "heavy"`);
-  }
-  return value;
 }
 
 function optionalThinkingLevel(value: unknown): AgentOptions["thinkingLevel"] {
@@ -909,16 +884,18 @@ function optionalThinkingLevel(value: unknown): AgentOptions["thinkingLevel"] {
   return value;
 }
 
-function modelForWeight(weight: WorkflowWeight | undefined, policy: WorkflowPolicy): string | undefined {
-  return weight ? (policy.modelsByWeight?.[weight] ?? policy.modelsByStream?.[weight]) : undefined;
-}
-
-function optionalPositiveNumber(value: unknown, name: string): number | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new TypeError(`${name} must be a positive finite number`);
-  }
-  return value;
+/**
+ * Build a typed AgentRunOptions object from the per-attempt agent call fields.
+ * Replaces a former `as any` cast that silently swallowed unknown fields
+ * (notably a dead `stream:` property). Any future field mismatch now
+ * becomes a compile error instead of a silent no-op.
+ */
+function toAgentRunOptions(
+  fields: Omit<AgentRunOptions<undefined>, "schema"> & {
+    schema?: import("typebox").TSchema;
+  },
+): AgentRunOptions {
+  return fields as AgentRunOptions;
 }
 
 function normalizeAgentRetryShape(value: unknown): AgentRetryOptions | undefined {
@@ -1166,9 +1143,6 @@ function buildAgentInstructions(
   if (mailboxInstructions) lines.push(mailboxInstructions);
   if (mailboxDeliveryInstructions) lines.push(mailboxDeliveryInstructions);
   if (phase) lines.push(`Workflow phase: ${phase}`);
-  if (options.agentType) lines.push(`Act as workflow subagent type: ${options.agentType}`);
-  if (options.isolation) lines.push(`Requested isolation: ${options.isolation}`);
-  if (options.weight) lines.push(`Requested model weight: ${options.weight}`);
   if (options.thinkingLevel) lines.push(`Requested thinking level: ${options.thinkingLevel}`);
   if (options.model) lines.push(`Requested model: ${options.model}`);
   return lines.length ? lines.join("\n") : undefined;

@@ -13,7 +13,7 @@ An agent spawned within a workflow via `agent()` (awaited) or `spawn()` (handle-
 _Avoid_: child agent, worker, task
 
 **Model**:
-An explicit model-id string for a subagent call (e.g. `deepseek-v4-flash`). Matched to task complexity. Combined with `thinkingLevel` for effort control.
+An explicit `provider/model-id` string for a subagent call (e.g. `provider/fast-model`). Matched to task complexity. Combined with `thinkingLevel` for effort control.
 _Avoid_: weight, stream, tier, routing
 
 **Mailbox**:
@@ -44,6 +44,6 @@ _Avoid_: config, settings
 
 Documented in [docs/adr/](docs/adr/):
 
-- [0001: Runtime policy and weight-based model routing](docs/adr/0001-runtime-policy-and-stream-routing.md)
+- [0001: Runtime policy and weight-based model routing (superseded)](docs/adr/0001-runtime-policy-and-stream-routing.md)
 - [0002: Communicating workflow agents with runtime mailboxes](docs/adr/0002-communicating-workflow-agents.md)
 - [0003: Side-effectful workflows require ownership and validation guidance](docs/adr/0003-side-effectful-workflow-validation.md)

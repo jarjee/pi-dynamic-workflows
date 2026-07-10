@@ -68,11 +68,9 @@ When a parent workflow abort signal fires, the runtime calls `abortAll()` on the
 
 `handoff(value, { inlineLimit })` converts potentially large upstream values into mode-0600 temp-file references. This keeps model-generated workflow scripts simple while avoiding accidentally stuffing very large upstream outputs into downstream prompts.
 
-### Per-agent model selection and weight
+### Per-agent model selection
 
-`agent(prompt, { model: 'provider/model-id' })` resolves the ref through the active Pi model registry and passes the resolved model into the child in-memory session. Unknown refs fail before launch.
-
-`agent(prompt, { weight })` is a softer routing hint. Hosts can map `light`, `medium`, and `heavy` to concrete models through `policy.modelsByWeight`. Use light for cheap summarization/classification across many items, medium for normal code generation and review, and heavy for architecture, final synthesis, adversarial critique, and quality gates. `stream` remains a deprecated alias for existing scripts.
+`agent(prompt, { model: 'provider/model-id' })` resolves the ref through the active Pi model registry and passes the resolved model into the child in-memory session. Unknown refs fail before launch. Match the model to the lane's complexity: a fast model for cheap summarization/classification across many items, a code model for normal code generation and review, and a reasoning/frontier model for architecture, final synthesis, adversarial critique, and quality gates.
 
 ### Timeout and retry
 

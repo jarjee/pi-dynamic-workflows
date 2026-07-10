@@ -10,6 +10,7 @@ import {
 import type { Static, TSchema } from "typebox";
 import type { WorkflowHostToolPolicy } from "./policy.js";
 import { createStructuredOutputTool, type StructuredOutputCapture } from "./structured-output.js";
+import { uniqueStrings } from "./validators.js";
 
 export interface WorkflowAgentOptions {
   cwd?: string;
@@ -48,10 +49,6 @@ export type AgentRunResult<TSchemaDef extends TSchema | undefined> = TSchemaDef 
 
 const DEFAULT_WORKFLOW_TOOLS = ["read", "grep", "find", "ls"];
 const BUILT_IN_TOOL_NAMES = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
-
-function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values)];
-}
 
 export class WorkflowAgent {
   private readonly cwd: string;

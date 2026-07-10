@@ -21,7 +21,6 @@ declare global {
   interface WorkflowMetaPhase {
     title: string;
     detail?: string;
-    model?: string;
   }
 
   interface WorkflowAgentRetryOptions {
@@ -33,9 +32,7 @@ declare global {
     backoff?: "constant" | "exponential";
   }
 
-  type WorkflowWeight = "light" | "medium" | "heavy";
-  /** @deprecated Use WorkflowWeight. */
-  type WorkflowStream = WorkflowWeight;
+  type WorkflowThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
   interface WorkflowAgentOptions<TSchema = JsonSchema> {
     /** Short label shown in the live progress UI. */
@@ -46,16 +43,8 @@ declare global {
     schema?: TSchema;
     /** Provider/model id to use for this subagent, e.g. anthropic/claude-opus-4-6. */
     model?: string;
-    /** Model-routing weight; host policy may map this to a model. */
-    weight?: WorkflowWeight;
-    /** @deprecated Use weight. */
-    stream?: WorkflowWeight;
     /** Model thinking effort for this subagent. */
-    thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
-    /** Requested isolation mode. */
-    isolation?: "worktree";
-    /** Requested subagent role/type. */
-    agentType?: string;
+    thinkingLevel?: WorkflowThinkingLevel;
     /** Built-in coding tools to expose. Omit for runtime defaults; [] exposes no coding tools. */
     tools?: Array<"read" | "grep" | "find" | "ls" | "bash" | "edit" | "write" | string>;
     /** Maximum wall-clock time for each subagent attempt. */
@@ -98,6 +87,9 @@ declare global {
 
   type WorkflowAgentStatus = "starting" | "running" | "paused" | "completed" | "failed" | "aborted";
 
+  /** Display/snapshot status of a workflow subagent (distinct from the runtime {@link WorkflowAgentStatus}). */
+  type WorkflowAgentSnapshotStatus = "queued" | "running" | "done" | "error" | "skipped";
+
   interface WorkflowAgentHandle<T = unknown> {
     id: string;
     label: string;
@@ -111,9 +103,6 @@ declare global {
     maxConcurrency?: number;
     hardAbortGraceMs?: number;
     projectRoles?: "deny" | "allow";
-    modelsByWeight?: Partial<Record<WorkflowWeight, string>>;
-    /** @deprecated Use modelsByWeight. */
-    modelsByStream?: Partial<Record<WorkflowWeight, string>>;
     mailboxPauseTimeoutSeconds?: number;
   }
 
@@ -122,6 +111,23 @@ declare global {
 
   /** Spawn a subagent and await its result. Returns final text unless a structured-output schema is used with an explicit generic. */
   function agent<T = string>(prompt: string, options?: WorkflowAgentOptions): Promise<T>;
+
+  /** Phase registration options. */
+  interface WorkflowRegisterPhaseOptions {
+    /** Validates the phase body's return value. Return null to pass (advance); return a string to retry. */
+    gate?: (output: unknown, upstreamOutput: unknown) => Promise<string | null> | string | null;
+    /** Max attempts including the first run. Default 1; when `gate` is present, default 3. */
+    maxIterations?: number;
+    /** Skip the phase entirely when this returns true. */
+    skipIf?: (input: unknown) => boolean;
+  }
+
+  /** Declare a top-level phase. Phases execute in declaration order; each body receives the previous phase's return value. */
+  function registerPhase(
+    name: string,
+    body: (input: unknown) => unknown | Promise<unknown>,
+    options?: WorkflowRegisterPhaseOptions,
+  ): void;
 
   const mailbox: {
     allow(fromId: string, toId: string): void;
@@ -158,6 +164,9 @@ declare global {
 
   /** Deterministic process shim exposing only cwd(). */
   const process: { cwd(): string };
+
+  /** Deterministic console shim (log/info/warn/error append to workflow logs). */
+  const console: Pick<Console, "log" | "info" | "warn" | "error">;
 
   /** Simple token-budget estimate for workflow runs. */
   const budget: WorkflowBudget;

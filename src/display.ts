@@ -1,7 +1,8 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { uniqueStrings } from "./validators.js";
 import type { WorkflowMeta } from "./workflow.js";
 
-export type WorkflowAgentStatus = "queued" | "running" | "done" | "error" | "skipped";
+export type WorkflowAgentSnapshotStatus = "queued" | "running" | "done" | "error" | "skipped";
 
 export interface WorkflowAgentSnapshot {
   id: number;
@@ -9,7 +10,7 @@ export interface WorkflowAgentSnapshot {
   phase?: string;
   prompt: string;
   model?: string;
-  status: WorkflowAgentStatus;
+  status: WorkflowAgentSnapshotStatus;
   resultPreview?: string;
   error?: string;
 }
@@ -141,7 +142,7 @@ export function renderWorkflowLines(snapshot: WorkflowSnapshot, options: Workflo
   const agentPhaseNames = snapshot.agents
     .map((agent) => agent.phase)
     .filter((phase): phase is string => Boolean(phase));
-  const phaseNames = unique([
+  const phaseNames = uniqueStrings([
     ...snapshot.phases,
     ...(snapshot.currentPhase ? [snapshot.currentPhase] : []),
     ...agentPhaseNames,
@@ -205,7 +206,7 @@ function statusLine(snapshot: WorkflowSnapshot, completed: boolean): string {
   return `workflow ${snapshot.name}: ${snapshot.doneCount}/${snapshot.agentCount} done`;
 }
 
-function statusIcon(status: WorkflowAgentStatus): string {
+export function statusIcon(status: WorkflowAgentSnapshotStatus): string {
   switch (status) {
     case "queued":
       return "○";
@@ -218,10 +219,6 @@ function statusIcon(status: WorkflowAgentStatus): string {
     case "skipped":
       return "-";
   }
-}
-
-function unique(values: string[]): string[] {
-  return [...new Set(values)];
 }
 
 function shorten(value: string, max: number): string {
