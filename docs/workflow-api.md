@@ -87,7 +87,7 @@ Results are returned in input order. Failed branches return `null`.
 
 ### pipeline(items, ...stages)
 
-Run each item through sequential stages. Items fan out concurrently, but stages for each item run in order.
+Run each item through sequential stages. Items fan out concurrently, but stages for each item run in order. The first argument is the **items array**; each stage is a **separate argument** after it.
 
 ```js
 const results = await pipeline(
@@ -100,6 +100,8 @@ const results = await pipeline(
 ```
 
 Each stage receives `(previousStageResult, originalItem, index)`. Failed items return `null`.
+
+> **Common mistake:** `pipeline([stage1, stage2])` is wrong — that passes a single array as the items argument. The stages must be spread as separate arguments after the items array: `pipeline(items, stage1, stage2)`.
 
 ### handoff(value, opts)
 
