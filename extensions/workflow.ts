@@ -26,10 +26,11 @@ export default function extension(pi: ExtensionAPI) {
       }
       if (!ctx.hasUI) return;
 
-      await ctx.ui.custom<void>(
-        (tui, _theme, keybindings, done) =>
-          createWorkflowInspector(activeWorkflow, tui, keybindings, done, () => ctx.ui.getToolsExpanded()),
-        { overlay: true, overlayOptions: { anchor: "center", width: 96 } },
+      // Overlay mode is experimental in Pi and composites over a transcript that is
+      // changing while the workflow runs. Use the standard custom-component path:
+      // it temporarily replaces the editor, avoiding overlay redraw artifacts.
+      await ctx.ui.custom<void>((tui, _theme, keybindings, done) =>
+        createWorkflowInspector(activeWorkflow, tui, keybindings, done, () => ctx.ui.getToolsExpanded()),
       );
     },
   });

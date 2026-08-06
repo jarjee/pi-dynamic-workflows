@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { matchesKey } from "@earendil-works/pi-tui";
+import { matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import type { WorkflowSnapshot } from "../src/index.js";
 import { createActiveWorkflowStore, createWorkflowInspector, recomputeWorkflowSnapshot } from "../src/index.js";
 
@@ -594,4 +594,77 @@ test("workflow inspector keeps a stable render height across live updates", () =
 
   const updatedLines = inspector.render(96);
   assert.equal(updatedLines.length, initialLines.length);
+});
+
+test("workflow inspector fits a 40-agent workflow inside a short terminal", () => {
+  const agents = Array.from({ length: 40 }, (_, index) => ({
+    id: index + 1,
+    label: `inspect item ${index + 1}`,
+    phase: "Investigate",
+    prompt: "Inspect the reported issue",
+    status: index === 39 ? ("running" as const) : ("done" as const),
+    resultPreview: "A deliberately long result preview that must not affect the overlay bounds",
+  }));
+  const store = createActiveWorkflowStore();
+  const active = store.create(
+    snapshot({
+      currentPhase: "Investigate",
+      phases: ["Investigate"],
+      logs: ["one", "two", "three", "four", "five"],
+      agents,
+    }),
+  );
+  const inspector = createWorkflowInspector(
+    active,
+    { requestRender() {}, terminal: { rows: 24 } } as never,
+    keybindings() as never,
+    () => {},
+    () => true,
+  );
+
+  const lines = inspector.render(80);
+
+  assert.ok(lines.length <= 24, `inspector rendered ${lines.length} rows in a 24-row terminal`);
+  assert.ok(
+    lines.every((line) => visibleWidth(line) <= 80),
+    "every inspector row must fit its allocated width",
+  );
+});
+
+test("workflow inspector honors narrow terminal dimensions", () => {
+  for (const rows of [1, 8, 9, 12, 24, 34, 80]) {
+    const store = createActiveWorkflowStore();
+    const active = store.create(
+      snapshot({
+        currentPhase: "Review",
+        phases: ["Review"],
+        logs: ["a very long log line that needs truncation"],
+        agents: [
+          {
+            id: 1,
+            label: "a very long agent label that needs truncation",
+            phase: "Review",
+            prompt: "Review",
+            status: "running",
+          },
+        ],
+      }),
+    );
+    const inspector = createWorkflowInspector(
+      active,
+      { requestRender() {}, terminal: { rows } } as never,
+      keybindings() as never,
+      () => {},
+      () => true,
+    );
+
+    for (const width of [1, 2, 3, 10, 80]) {
+      const lines = inspector.render(width);
+      assert.ok(lines.length <= rows, `rendered ${lines.length} rows in a ${rows}-row terminal`);
+      assert.ok(
+        lines.every((line) => visibleWidth(line) <= width),
+        `a ${width}-column terminal received an over-wide inspector row`,
+      );
+    }
+  }
 });

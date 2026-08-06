@@ -14,7 +14,7 @@ interface InspectorRow {
 
 export function createWorkflowInspector(
   workflow: ActiveWorkflow,
-  tui: Pick<TUI, "requestRender">,
+  tui: Pick<TUI, "requestRender"> & { terminal?: Pick<TUI["terminal"], "rows"> },
   keybindings: KeybindingsManager,
   done: () => void,
   getToolsExpanded: () => boolean,
@@ -23,8 +23,10 @@ export function createWorkflowInspector(
 }
 
 class WorkflowInspector implements Component {
+  private static readonly MAX_PANEL_ROWS = 34;
   private static readonly MAX_VISIBLE_ROWS = 18;
-  private static readonly MAX_LOG_ROWS = 5;
+  private static readonly DESIRED_LOG_PANEL_ROWS = 8;
+  private static readonly MIN_LOG_PANEL_ROWS = 3;
 
   private selected = 0;
   private selectedKey: string | undefined;
@@ -35,7 +37,7 @@ class WorkflowInspector implements Component {
 
   constructor(
     private readonly workflow: ActiveWorkflow,
-    private readonly tui: Pick<TUI, "requestRender">,
+    private readonly tui: Pick<TUI, "requestRender"> & { terminal?: Pick<TUI["terminal"], "rows"> },
     private readonly keybindings: KeybindingsManager,
     private readonly done: () => void,
     getToolsExpanded: () => boolean,
@@ -105,24 +107,33 @@ class WorkflowInspector implements Component {
 
   render(width: number): string[] {
     const snapshot = this.workflow.getSnapshot();
-    const innerW = Math.max(20, width - 2);
+    const height = this.panelHeight();
+    if (height < 9 || width < 2) {
+      return [truncateToWidth(`Workflow: ${snapshot.name} (${snapshot.doneCount}/${snapshot.agentCount})`, width)];
+    }
+
+    const innerW = Math.max(0, width - 2);
     const lines: string[] = [];
     const border = (left: string, fill: string, right: string) => left + fill.repeat(innerW) + right;
-    const row = (content = "") => `│${truncateToWidth(` ${content}`, innerW, "…", true).padEnd(innerW, " ")}│`;
+    const row = (content = "") => `│${truncateToWidth(` ${content}`, innerW, "…", true)}│`;
+    const showDescription = Boolean(snapshot.description) && height >= 12;
+    const headerRows = showDescription ? 5 : 4;
+    const footerRows = 3;
+    const { visibleRowCount, logPanelRows } = this.layout(height - headerRows - footerRows);
 
-    const title = ` Workflow ${this.workflow.isCompleted() ? "completed" : "running"} `;
+    const title = truncateToWidth(` Workflow ${this.workflow.isCompleted() ? "completed" : "running"} `, innerW, "");
     const borderWidth = Math.max(0, innerW - visibleWidth(title));
     const left = Math.floor(borderWidth / 2);
     const right = borderWidth - left;
     lines.push(`╭${"─".repeat(left)}${title}${"─".repeat(right)}╮`);
     lines.push(row(`name: ${snapshot.name}`));
     lines.push(row(headerStatus(snapshot)));
-    if (snapshot.description) lines.push(row(snapshot.description));
+    if (showDescription && snapshot.description) lines.push(row(snapshot.description));
     lines.push(border("├", "─", "┤"));
 
     const rows = this.rows();
-    const visibleRows = this.visibleRows(rows);
-    if (rows.length === 0) {
+    const visibleRows = this.visibleRows(rows, visibleRowCount);
+    if (rows.length === 0 && visibleRowCount > 0) {
       lines.push(row("No phases or subagents yet."));
     } else {
       for (const { row: inspectorRow, index } of visibleRows) {
@@ -130,13 +141,16 @@ class WorkflowInspector implements Component {
         lines.push(row(this.renderInspectorRow(inspectorRow, selected)));
       }
     }
-    while (lines.length < 5 + WorkflowInspector.MAX_VISIBLE_ROWS) lines.push(row());
+    while (lines.length < headerRows + visibleRowCount) lines.push(row());
 
-    const recentLogs = snapshot.logs.slice(-WorkflowInspector.MAX_LOG_ROWS);
-    lines.push(border("├", "─", "┤"));
-    lines.push(row("Recent logs"));
-    for (const log of recentLogs) lines.push(row(`  ${log}`));
-    while (lines.length < 8 + WorkflowInspector.MAX_VISIBLE_ROWS + WorkflowInspector.MAX_LOG_ROWS) lines.push(row());
+    if (logPanelRows > 0) {
+      const maxLogRows = Math.max(0, logPanelRows - WorkflowInspector.MIN_LOG_PANEL_ROWS);
+      const recentLogs = snapshot.logs.slice(-maxLogRows);
+      lines.push(border("├", "─", "┤"));
+      lines.push(row("Recent logs"));
+      for (const log of recentLogs) lines.push(row(`  ${log}`));
+      while (lines.length < headerRows + visibleRowCount + logPanelRows) lines.push(row());
+    }
 
     lines.push(border("├", "─", "┤"));
     lines.push(row("↑↓/pg select • space/enter toggle • ←/→ collapse/expand • ctrl+o global • esc close"));
@@ -152,20 +166,31 @@ class WorkflowInspector implements Component {
     this.unsubscribe();
   }
 
-  private visibleRows(rows: InspectorRow[]): Array<{ row: InspectorRow; index: number }> {
-    if (rows.length <= WorkflowInspector.MAX_VISIBLE_ROWS) {
+  private panelHeight(): number {
+    const terminalRows = this.tui.terminal?.rows;
+    if (!Number.isFinite(terminalRows) || terminalRows === undefined) return WorkflowInspector.MAX_PANEL_ROWS;
+    return Math.max(1, Math.min(WorkflowInspector.MAX_PANEL_ROWS, terminalRows));
+  }
+
+  private layout(availableRows: number): { visibleRowCount: number; logPanelRows: number } {
+    if (availableRows < WorkflowInspector.MIN_LOG_PANEL_ROWS + 1) {
+      return { visibleRowCount: Math.max(0, availableRows), logPanelRows: 0 };
+    }
+
+    const visibleRowCount = Math.max(
+      1,
+      Math.min(WorkflowInspector.MAX_VISIBLE_ROWS, availableRows - WorkflowInspector.DESIRED_LOG_PANEL_ROWS),
+    );
+    return { visibleRowCount, logPanelRows: availableRows - visibleRowCount };
+  }
+
+  private visibleRows(rows: InspectorRow[], maxRows: number): Array<{ row: InspectorRow; index: number }> {
+    if (maxRows <= 0) return [];
+    if (rows.length <= maxRows) {
       return rows.map((row, index) => ({ row, index }));
     }
-    const start = Math.max(
-      0,
-      Math.min(
-        this.selected - Math.floor(WorkflowInspector.MAX_VISIBLE_ROWS / 2),
-        rows.length - WorkflowInspector.MAX_VISIBLE_ROWS,
-      ),
-    );
-    return rows
-      .slice(start, start + WorkflowInspector.MAX_VISIBLE_ROWS)
-      .map((row, offset) => ({ row, index: start + offset }));
+    const start = Math.max(0, Math.min(this.selected - Math.floor(maxRows / 2), rows.length - maxRows));
+    return rows.slice(start, start + maxRows).map((row, offset) => ({ row, index: start + offset }));
   }
 
   private renderInspectorRow(row: InspectorRow, selected: boolean): string {
@@ -311,8 +336,15 @@ class WorkflowInspector implements Component {
       0,
       selectable.findIndex(({ index }) => index === this.selected),
     );
-    const next = Math.max(0, Math.min(selectable.length - 1, current + delta * WorkflowInspector.MAX_VISIBLE_ROWS));
+    const next = Math.max(0, Math.min(selectable.length - 1, current + delta * this.pageSize()));
     this.selectIndex(selectable[next].index, rows);
+  }
+
+  private pageSize(): number {
+    const snapshot = this.workflow.getSnapshot();
+    const headerRows = snapshot.description && this.panelHeight() >= 12 ? 5 : 4;
+    const { visibleRowCount } = this.layout(this.panelHeight() - headerRows - 3);
+    return Math.max(1, visibleRowCount);
   }
 
   private selectFirst(): void {
