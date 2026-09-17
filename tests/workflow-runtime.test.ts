@@ -1044,3 +1044,114 @@ test("registerPhase announces all phases up front via onPhaseRegistered before a
   // ...and the announcement started before the first subagent ran.
   assert.equal(agentsRunBeforeFirstRegistration, 0, "onPhaseRegistered fired before any agent.run call");
 });
+
+test("runWorkflow announces meta.phases titles via onPhaseRegistered before any subagent runs", async () => {
+  const registered: string[] = [];
+  let agentsRunBeforeFirstRegistration = 0;
+  let registrationStarted = false;
+  const recordingAgent = {
+    async run(prompt: string, _opts?: Record<string, unknown>): Promise<string> {
+      if (!registrationStarted) agentsRunBeforeFirstRegistration++;
+      return `result:${prompt}`;
+    },
+  };
+
+  const result = await runWorkflow(
+    `export const meta = {
+  name: 'meta_outline',
+  description: 'Announce the static phase outline',
+  phases: [{ title: 'Scan' }, { title: 'Review' }]
+}
+
+phase('Scan')
+await agent('scan', { label: 'scan' })
+phase('Review')
+await agent('review', { label: 'review' })
+return { ok: true }
+`,
+    {
+      agent: recordingAgent,
+      onPhaseRegistered(title) {
+        if (registered.length === 0) registrationStarted = true;
+        registered.push(title);
+      },
+    },
+  );
+
+  // Both meta.phases titles are announced in declaration order...
+  assert.deepEqual(registered, ["Scan", "Review"]);
+  // ...before any subagent ran...
+  assert.equal(agentsRunBeforeFirstRegistration, 0, "meta.phases announced before any agent.run call");
+  // ...and runtime phases still land in result.phases.
+  assert.deepEqual(result.phases, ["Scan", "Review"]);
+});
+
+test("runWorkflow dedupes onPhaseRegistered for titles in both meta.phases and registerPhase", async () => {
+  const registered: string[] = [];
+
+  const result = await runWorkflow(
+    'export const meta = { name: "dedupe_phases", description: "Announce each phase once", phases: [{ title: "Scan" }, { title: "Extra" }] }\n' +
+      "\n" +
+      'registerPhase("Scan", async () => {\n' +
+      '  return await agent("scan", { label: "scan" })\n' +
+      "})\n",
+    {
+      agent: fakeAgent,
+      onPhaseRegistered(title) {
+        registered.push(title);
+      },
+    },
+  );
+
+  // meta.phases titles are announced first; the registerPhase "Scan" does not re-announce.
+  assert.deepEqual(registered, ["Scan", "Extra"]);
+  assert.equal(registered.filter((title) => title === "Scan").length, 1, "Scan announced exactly once");
+  // meta-only titles do not leak into result.phases (they may never run).
+  assert.deepEqual(result.phases, ["Scan"]);
+});
+
+test("runWorkflow fires onPhaseOutcome with done, skipped, and exhausted statuses", async () => {
+  const outcomes: Array<{ title: string; status: string }> = [];
+
+  const result = await runWorkflow(
+    'export const meta = { name: "phase_outcomes", description: "Phase outcome callbacks" }\n' +
+      "\n" +
+      'registerPhase("Scan", async () => {\n' +
+      '  return await agent("scan", { label: "scan" })\n' +
+      "})\n" +
+      "\n" +
+      'registerPhase("Conditional", async (input) => {\n' +
+      '  return await agent("conditional", { label: "cond" })\n' +
+      "}, {\n" +
+      "  skipIf: (input) => typeof input === 'string' && input.includes('scan'),\n" +
+      "})\n" +
+      "\n" +
+      'registerPhase("Gated", async () => {\n' +
+      '  return await agent("gated work", { label: "gated" })\n' +
+      "}, {\n" +
+      '  gate: async (output) => "always fails",\n' +
+      "  maxIterations: 2,\n" +
+      "})\n" +
+      "\n" +
+      'registerPhase("Verified", async () => {\n' +
+      '  return await agent("verified", { label: "verified" })\n' +
+      "}, {\n" +
+      "  gate: async (output) => null,\n" +
+      "})\n",
+    {
+      agent: fakeAgent,
+      onPhaseOutcome(title, status) {
+        outcomes.push({ title, status });
+      },
+    },
+  );
+
+  assert.deepEqual(outcomes, [
+    { title: "Scan", status: "done" },
+    { title: "Conditional", status: "skipped" },
+    { title: "Gated", status: "exhausted" },
+    { title: "Verified", status: "done" },
+  ]);
+  // scan (1) + gated x2 (exhausted gate) + verified (1); the skipped phase runs no subagent.
+  assert.equal(result.agentCount, 4);
+});

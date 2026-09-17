@@ -32,22 +32,28 @@ Just ask Pi for a workflow in plain language:
 Run a workflow to inspect this repository and summarize the main modules.
 ```
 
-The model will write a workflow script and call the `workflow` tool. Live progress shows up inline:
+The model will write a workflow script and call the `workflow` tool. Live progress shows up inline — the full phase outline is visible before the first phase runs, and the display stays within a fixed line budget no matter how many phases or subagents the workflow has:
 
 ```text
-◆ Workflow: inspect_project (3/3 done)
-  ✓ Scan 1/1
-    #1 ✓ repo inventory
-  ✓ Analyze 2/2
-    #2 ✓ source modules
-    #3 ✓ final summary
+◆ Workflow: migrate_modules (7/12 done, 2 running)
+  … +1 earlier phases
+  ✓ Plan 1/1
+  ✓ Migrate 3/3
+  ▶ Validate 1/3 · 2 running
+    #5 ✓ validate auth
+    #6 ● validate billing
+    … 1 earlier agent
+  ○ Integrate
+  ○ Report
 ```
+
+Phase markers: `○` pending, `▶` running, `✓` done, `-` skipped, `⚠` exhausted (gate retries ran out). Completed phases collapse to a single summary line — open the `/workflow` inspector for per-agent detail on any phase.
 
 Press `Esc` to cancel a running workflow. Active subagents are aborted immediately; after a short grace period the runtime disposes any still-active in-memory sessions so stuck work does not keep running in the background.
 
 ## Workflow script shape
 
-A workflow is plain JavaScript. The first statement must export literal metadata. `name` and `description` are required. `phases` is optional static documentation for an expected outline; if present, it must be an array of objects with title strings, e.g. `{ title: 'Scan' }`, not an array of strings. The live progress view is driven by `registerPhase(...)` declarations: place all `registerPhase()` calls at the top level of the script body, synchronously, before any top-level `await` — the runtime announces the full phase outline up front before the first subagent runs. Most generated workflows should omit `meta.phases` and declare phases with `registerPhase(...)`:
+A workflow is plain JavaScript. The first statement must export literal metadata. `name` and `description` are required. `phases` is an optional upfront outline; if present, it must be an array of objects with title strings, e.g. `{ title: 'Scan' }`, not an array of strings. Titles from `meta.phases` are announced before the script body runs and render immediately as pending phases; titles later declared with `registerPhase(...)` are deduplicated against them. Place all `registerPhase()` calls at the top level of the script body, synchronously, before any top-level `await` — the runtime announces the full phase outline up front, before the first subagent runs. Most generated workflows should omit `meta.phases` and declare phases with `registerPhase(...)`:
 
 ```js
 export const meta = {
@@ -85,7 +91,7 @@ This declares `registerPhase`, `agent`, `spawn`, `parallel`, `pipeline`, `handof
 
 | Global | Description |
 | --- | --- |
-| `registerPhase(name, body, opts)` | Declare a top-level phase. Body receives previous phase's return value. Supports `gate`, `maxIterations`, and `skipIf` options. |
+| `registerPhase(name, body, opts)` | Declare a top-level phase. Body receives previous phase's return value. Supports `gate`, `maxIterations`, and `skipIf` options. Declared phases are announced up front and render as pending before they run. |
 | `spawn(prompt, opts)` | Start an isolated subagent and return a handle `{ id, label, status(), result }` immediately. Use for mailbox communication and status tracking. |
 | `agent(prompt, opts)` | Spawn an isolated subagent and await its result. Returns final text or, with `opts.schema`, a validated object. `opts.tools` can allowlist built-in coding tools. |
 | `parallel(thunks)` | Run an array of `() => agent(...)` thunks concurrently. Results are returned in input order. |
@@ -115,6 +121,8 @@ This keeps `meta` parseable, runs reproducible, and the surface area small.
 ### Workflow fit and composition
 
 Before using a workflow, gate whether the task has real independent lanes of work. Good fits include broad audits, many similar independent checks, multi-perspective review, debugging with competing hypotheses, research across alternatives, migrations with separable file sets, and repeatable quality gates. A good workflow may spawn many subagents when the work is genuinely fan-out; do not prematurely collapse useful independent lanes into a small fixed set. Poor fits include small one-step tasks, mostly sequential work, tightly coupled edits, and tasks likely to need user input midway.
+
+Once the lanes are known, compose them deliberately: `pipeline()` is the default for multi-stage work (items flow through stages with no barrier between them), while `parallel()` is a barrier reserved for steps that genuinely need every lane's result at once — dedup across the full set, early exit on zero, or synthesis over all findings. The [authoring patterns guide](docs/authoring-patterns.md) expands this into a catalog of composable shapes — adversarial verify, judge panel, loop-until-dry, budget-scaled fan-out, multi-modal sweep, completeness critic — each with a worked example in the workflow DSL and notes on composing with `registerPhase()` gates.
 
 For side-effectful implementation workflows, make each lane's file or directory ownership explicit and non-overlapping. If ownership overlaps, serialize those lanes or add dependencies rather than running them in parallel. Good subagent prompts include mission, concrete tasks, scope/out-of-scope, dependencies, quality standards, and expected deliverable shape.
 
@@ -212,7 +220,7 @@ registerPhase('Implement', async (plan) => {
 })
 ```
 
-When all retries are exhausted, the phase returns with `__phaseMeta: { exhausted: true, iteration: N, gateError: '...' }`. Use `skipIf: (input) => boolean` to skip a phase conditionally.
+When all retries are exhausted, the phase returns with `__phaseMeta: { exhausted: true, iteration: N, gateError: '...' }` and is marked `exhausted` (`⚠`) in the progress view. Use `skipIf: (input) => boolean` to skip a phase conditionally; skipped phases show as `- Name (skipped)`.
 
 ### Reusable subagent roles
 

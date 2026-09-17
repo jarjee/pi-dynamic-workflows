@@ -37,6 +37,8 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
   onPhase?: (title: string) => void;
   /** Fired once per registered phase (in declaration order) before the execution loop starts, so hosts can render the full phase outline up front. */
   onPhaseRegistered?: (title: string) => void;
+  /** Fired when a registered phase finishes: "skipped" (skipIf), "exhausted" (gate retries exhausted), or "done" (normal completion, including a passed gate). */
+  onPhaseOutcome?: (title: string, status: "done" | "skipped" | "exhausted") => void;
   onAgentStart?: (event: { label: string; phase?: string; prompt: string; model?: string }) => void;
   onAgentEnd?: (event: { label: string; phase?: string; result: unknown; model?: string }) => void;
 }
@@ -100,6 +102,14 @@ export async function runWorkflow<T = unknown>(
   const started = Date.now();
   const { meta, body } = parseWorkflowScript(script);
   const state: RuntimeState = { logs: [], phases: [], agentCount: 0, spent: 0 };
+  // Announce the static phase outline from meta.phases before the sandboxed
+  // script body runs, so hosts can render pending phases as early as possible.
+  // Titles announced here are deduped against later registerPhase announcements.
+  const announcedPhases = new Set<string>();
+  for (const metaPhase of meta.phases ?? []) {
+    announcedPhases.add(metaPhase.title);
+    options.onPhaseRegistered?.(metaPhase.title);
+  }
   const policy = normalizeWorkflowPolicy(options.policy);
   const agentRunner =
     options.agent ??
@@ -543,7 +553,10 @@ export async function runWorkflow<T = unknown>(
       // so phases appear incrementally.
       for (const descriptor of phaseDescriptors) {
         if (!state.phases.includes(descriptor.name)) state.phases.push(descriptor.name);
-        options.onPhaseRegistered?.(descriptor.name);
+        if (!announcedPhases.has(descriptor.name)) {
+          announcedPhases.add(descriptor.name);
+          options.onPhaseRegistered?.(descriptor.name);
+        }
       }
       let input: unknown = scriptResult;
       for (const descriptor of phaseDescriptors) {
@@ -552,6 +565,7 @@ export async function runWorkflow<T = unknown>(
 
         // skipIf
         if (opts?.skipIf?.(input)) {
+          options.onPhaseOutcome?.(descriptor.name, "skipped");
           continue;
         }
 
@@ -619,6 +633,8 @@ export async function runWorkflow<T = unknown>(
         // Restore original agent/spawn
         context.agent = originalAgent;
         context.spawn = originalSpawn;
+
+        options.onPhaseOutcome?.(descriptor.name, exhausted ? "exhausted" : "done");
 
         if (exhausted) {
           lastOutput = {

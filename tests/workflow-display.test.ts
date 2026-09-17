@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createWorkflowSnapshot,
+  phaseStatusIcon,
   recomputeWorkflowSnapshot,
   renderWorkflowLines,
   renderWorkflowText,
   type WorkflowAgentSnapshot,
+  type WorkflowPhaseSnapshot,
+  type WorkflowPhaseStatus,
   type WorkflowSnapshot,
 } from "../src/display.js";
 
@@ -23,6 +26,10 @@ function snapshot(overrides: Partial<WorkflowSnapshot> = {}): WorkflowSnapshot {
   });
 }
 
+function phase(title: string, status: WorkflowPhaseStatus): WorkflowPhaseSnapshot {
+  return { title, status };
+}
+
 function agent(overrides: Partial<WorkflowAgentSnapshot> = {}): WorkflowAgentSnapshot {
   return {
     id: 1,
@@ -34,32 +41,80 @@ function agent(overrides: Partial<WorkflowAgentSnapshot> = {}): WorkflowAgentSna
   };
 }
 
-test("createWorkflowSnapshot does not pre-render declared phases", () => {
+test("createWorkflowSnapshot seeds declared phases as pending", () => {
   const value = createWorkflowSnapshot({
     name: "demo_workflow",
     description: "A useful workflow",
     phases: [{ title: "Scan" }, { title: "Review" }],
   });
 
-  assert.deepEqual(value.phases, []);
+  assert.deepEqual(value.phases, [
+    { title: "Scan", status: "pending" },
+    { title: "Review", status: "pending" },
+  ]);
 });
 
-test("renderWorkflowLines hides empty phase rows", () => {
+test("phaseStatusIcon maps each phase status to a marker", () => {
+  assert.equal(phaseStatusIcon("pending"), "○");
+  assert.equal(phaseStatusIcon("running"), "▶");
+  assert.equal(phaseStatusIcon("done"), "✓");
+  assert.equal(phaseStatusIcon("skipped"), "-");
+  assert.equal(phaseStatusIcon("exhausted"), "⚠");
+});
+
+test("renderWorkflowLines renders pending phases before they run", () => {
   const lines = renderWorkflowLines(
     snapshot({
-      phases: ["Scan", "Review"],
+      phases: [phase("Scan", "done"), phase("Review", "pending")],
       agents: [agent()],
     }),
   );
 
-  assert.ok(lines.some((line) => line.includes("Scan 1/1")));
-  assert.ok(!lines.some((line) => line.includes("Review 0/0")));
+  assert.ok(lines.some((line) => line.includes("✓ Scan 1/1")));
+  assert.ok(lines.some((line) => line.includes("○ Review")));
+});
+
+test("renderWorkflowLines renders completed phases as a single summary line without agent rows", () => {
+  const lines = renderWorkflowLines(
+    snapshot({
+      phases: [phase("Scan", "done")],
+      agents: [agent(), agent({ id: 2, label: "scan tests" })],
+    }),
+  );
+
+  const scanLines = lines.filter((line) => line.includes("Scan"));
+  assert.equal(scanLines.length, 1);
+  assert.ok(scanLines[0].includes("✓ Scan 2/2"));
+  assert.ok(!lines.some((line) => line.includes("#1")));
+  assert.ok(!lines.some((line) => line.includes("#2")));
+});
+
+test("renderWorkflowLines marks skipped and exhausted phases", () => {
+  const lines = renderWorkflowLines(
+    snapshot({
+      phases: [phase("Scan", "skipped"), phase("Gate", "exhausted")],
+    }),
+  );
+
+  assert.ok(lines.some((line) => line.includes("- Scan (skipped)")));
+  assert.ok(lines.some((line) => line.includes("⚠ Gate (exhausted)")));
 });
 
 test("renderWorkflowLines keeps the current empty phase visible", () => {
   const lines = renderWorkflowLines(
     snapshot({
-      phases: ["Scan"],
+      phases: [phase("Scan", "running")],
+      currentPhase: "Scan",
+    }),
+  );
+
+  assert.ok(lines.some((line) => line.includes("▶ Scan 0/0")));
+});
+
+test("renderWorkflowLines treats a pending current phase as running", () => {
+  const lines = renderWorkflowLines(
+    snapshot({
+      phases: [phase("Scan", "pending")],
       currentPhase: "Scan",
     }),
   );
@@ -70,8 +125,8 @@ test("renderWorkflowLines keeps the current empty phase visible", () => {
 test("renderWorkflowLines groups agents by phase even when the phase was not pre-recorded", () => {
   const lines = renderWorkflowLines(
     snapshot({
-      phases: ["Scan"],
-      agents: [agent({ id: 2, label: "review diff", phase: "Review" })],
+      phases: [phase("Scan", "done")],
+      agents: [agent(), agent({ id: 2, label: "review diff", phase: "Review" })],
     }),
   );
 
@@ -82,12 +137,80 @@ test("renderWorkflowLines groups agents by phase even when the phase was not pre
 test("renderWorkflowLines renders runtime-created phases from the phase list", () => {
   const lines = renderWorkflowLines(
     snapshot({
-      phases: ["Inspect API"],
+      phases: [phase("Inspect API", "done")],
       agents: [agent({ label: "inspect api", phase: "Inspect API" })],
     }),
   );
 
   assert.ok(lines.some((line) => line.includes("Inspect API 1/1")));
+});
+
+test("renderWorkflowLines renders unphased agents", () => {
+  const lines = renderWorkflowLines(snapshot({ agents: [agent({ phase: undefined })] }));
+
+  assert.ok(lines.some((line) => line.trim() === "Unphased"));
+  assert.ok(lines.some((line) => line.includes("#1")));
+});
+
+test("renderWorkflowLines caps agent rows under the running phase", () => {
+  const agents = Array.from({ length: 12 }, (_, index) =>
+    agent({
+      id: index + 1,
+      label: `agent ${index}`,
+      phase: "Scan",
+      status: index < 4 ? "done" : "running",
+    }),
+  );
+  const lines = renderWorkflowLines(snapshot({ phases: [phase("Scan", "running")], agents }), { maxAgents: 5 });
+
+  const agentRows = lines.filter((line) => line.includes("#"));
+  assert.equal(agentRows.length, 5);
+  assert.ok(lines.some((line) => line.includes("… 7 earlier agents")));
+});
+
+test("renderWorkflowLines bounds output for large workflows", () => {
+  const phases: WorkflowPhaseSnapshot[] = [];
+  const agents: WorkflowAgentSnapshot[] = [];
+  for (let index = 0; index < 20; index++) {
+    const title = `Phase ${index}`;
+    const running = index === 19;
+    phases.push(phase(title, running ? "running" : "done"));
+    for (let slot = 0; slot < 10; slot++) {
+      agents.push(
+        agent({
+          id: index * 10 + slot + 1,
+          label: `agent ${index}-${slot}`,
+          phase: title,
+          status: running ? (slot < 5 ? "done" : "running") : "done",
+        }),
+      );
+    }
+  }
+  const value = snapshot({ phases, agents });
+
+  const defaults = renderWorkflowLines(value);
+  assert.ok(defaults.length <= 20, `expected <= 20 lines, got ${defaults.length}`);
+  assert.ok(defaults[0].includes("Workflow:"));
+  assert.ok(defaults.some((line) => line.includes("▶ Phase 19")));
+  assert.ok(defaults.some((line) => line.includes("earlier phases")));
+
+  const tight = renderWorkflowLines(value, { maxLines: 8 });
+  assert.ok(tight.length <= 8, `expected <= 8 lines, got ${tight.length}`);
+  assert.ok(tight[0].includes("Workflow:"));
+  assert.ok(tight.some((line) => line.includes("▶ Phase 19")));
+  assert.ok(tight.some((line) => line.includes("… +17 earlier phases")));
+  assert.ok(tight.some((line) => line.includes("… 8 earlier agents")));
+});
+
+test("renderWorkflowLines collapses excess pending phases within the line budget", () => {
+  const phases = Array.from({ length: 10 }, (_, index) => phase(`Phase ${index}`, "pending"));
+  const lines = renderWorkflowLines(snapshot({ phases }), { maxLines: 4 });
+
+  assert.ok(lines.length <= 4);
+  assert.ok(lines.some((line) => line.includes("○ Phase 0")));
+  assert.ok(lines.some((line) => line.includes("○ Phase 1")));
+  assert.ok(!lines.some((line) => line.includes("○ Phase 2")));
+  assert.ok(lines.some((line) => line.includes("… +8 more phases")));
 });
 
 test("renderWorkflowText respects log limits", () => {

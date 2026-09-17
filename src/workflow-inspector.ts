@@ -1,7 +1,13 @@
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { type Component, matchesKey, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ActiveWorkflow } from "./active-workflow.js";
-import { statusIcon, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
+import {
+  phaseStatusIcon,
+  statusIcon,
+  type WorkflowAgentSnapshot,
+  type WorkflowPhaseStatus,
+  type WorkflowSnapshot,
+} from "./display.js";
 import { uniqueStrings } from "./validators.js";
 
 interface InspectorRow {
@@ -197,10 +203,25 @@ class WorkflowInspector implements Component {
     const prefix = selected ? "› " : "  ";
     if (row.type === "phase") {
       const phase = row.phase ?? "";
-      const agents = agentsForPhase(this.workflow.getSnapshot(), phase);
+      const snapshot = this.workflow.getSnapshot();
+      const agents = agentsForPhase(snapshot, phase);
       const expanded = this.isPhaseExpanded(phase);
       const stats = agentStats(agents);
-      return `${prefix}${expanded ? "▾" : "▸"} ${phaseStatusIcon(stats)} ${phase} ${stats.done}/${agents.length}${stats.running ? ` · ${stats.running} running` : ""}${stats.errors ? ` · ${stats.errors} errors` : ""}${stats.skipped ? ` · ${stats.skipped} skipped` : ""}`;
+      const declared = declaredPhaseStatus(snapshot, phase);
+      // Declared snapshot phases carry an explicit status; runtime-created
+      // phases (agent phase labels never declared) fall back to agent stats.
+      const icon = declared ? phaseStatusIcon(declared) : statsPhaseIcon(stats);
+      const counts = agents.length > 0 ? ` ${stats.done}/${agents.length}` : "";
+      const details = [
+        stats.running ? `${stats.running} running` : "",
+        stats.errors ? `${stats.errors} errors` : "",
+        stats.skipped ? `${stats.skipped} skipped` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const suffix = details ? ` · ${details}` : "";
+      const pendingHint = declared === "pending" && agents.length === 0 ? " (pending)" : "";
+      return `${prefix}${expanded ? "▾" : "▸"} ${icon} ${phase}${counts}${pendingHint}${suffix}`;
     }
 
     if (row.type === "agent" && row.agent) {
@@ -225,9 +246,13 @@ class WorkflowInspector implements Component {
   private rows(): InspectorRow[] {
     const snapshot = this.workflow.getSnapshot();
     const rows: InspectorRow[] = [];
+    const declaredTitles = new Set(snapshot.phases.map((phase) => phase.title));
     for (const phase of phaseNames(snapshot)) {
       const agents = agentsForPhase(snapshot, phase);
-      if (agents.length === 0 && snapshot.currentPhase !== phase) continue;
+      // Hide only phases with no evidence: not declared in the snapshot phase
+      // outline, not current, and with no agents. Declared phases stay visible
+      // as selectable pending rows before they run.
+      if (agents.length === 0 && snapshot.currentPhase !== phase && !declaredTitles.has(phase)) continue;
       rows.push({ type: "phase", key: `phase:${phase}`, phase });
       if (this.isPhaseExpanded(phase)) {
         for (const agent of agents) this.pushAgentRows(rows, phase, agent);
@@ -419,10 +444,14 @@ function headerStatus(snapshot: WorkflowSnapshot): string {
 
 function phaseNames(snapshot: WorkflowSnapshot): string[] {
   return uniqueStrings([
-    ...snapshot.phases,
+    ...snapshot.phases.map((phase) => phase.title),
     ...(snapshot.currentPhase ? [snapshot.currentPhase] : []),
     ...snapshot.agents.map((agent) => agent.phase).filter((phase): phase is string => Boolean(phase)),
   ]);
+}
+
+function declaredPhaseStatus(snapshot: WorkflowSnapshot, phase: string): WorkflowPhaseStatus | undefined {
+  return snapshot.phases.find((entry) => entry.title === phase)?.status;
 }
 
 function agentsForPhase(snapshot: WorkflowSnapshot, phase: string): WorkflowAgentSnapshot[] {
@@ -439,7 +468,7 @@ function agentStats(agents: WorkflowAgentSnapshot[]) {
   };
 }
 
-function phaseStatusIcon(stats: ReturnType<typeof agentStats>): string {
+function statsPhaseIcon(stats: ReturnType<typeof agentStats>): string {
   if (stats.errors > 0) return "✗";
   if (stats.running > 0) return "▶";
   if (stats.skipped > 0) return "-";

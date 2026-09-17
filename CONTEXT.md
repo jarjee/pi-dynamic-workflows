@@ -29,7 +29,7 @@ Serialized data passed between workflow stages. A synchronous function (no await
 _Avoid_: pass, transfer, share
 
 **Phase**:
-A labelled progress section in a workflow. Set via `phase(title)`. Drives live UI grouping of subagents.
+A labelled work unit in a workflow. Top-level phases are declared with `registerPhase()` (optionally seeded from `meta.phases`); `phase(title)` marks a sub-phase inside a phase body. Each phase carries a status (pending, running, done, skipped, exhausted) that drives the live UI.
 _Avoid_: step, stage
 
 **Lane**:
@@ -47,3 +47,5 @@ Documented in [docs/adr/](docs/adr/):
 - [0001: Runtime policy and weight-based model routing (superseded)](docs/adr/0001-runtime-policy-and-stream-routing.md)
 - [0002: Communicating workflow agents with runtime mailboxes](docs/adr/0002-communicating-workflow-agents.md)
 - [0003: Side-effectful workflows require ownership and validation guidance](docs/adr/0003-side-effectful-workflow-validation.md)
+- [0004: Resolve conflicting `tools` fields](docs/adr/0004-resolve-conflicting-tools-fields.md)
+- [0005: Phase status and bounded progress rendering](docs/adr/0005-phase-status-and-bounded-progress.md)

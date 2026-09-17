@@ -19,7 +19,7 @@ export const meta = {
 }
 ```
 
-`meta.phases` is optional documentation for expected phases. Live progress is driven by `phase()` calls at runtime, not by `meta.phases`. Most workflows should omit `meta.phases` and call `phase()` as work starts — this way conditional or loop-created phases appear naturally and skipped branches don't show as empty rows.
+`meta.phases` is an optional upfront outline. Its titles are announced to the host before the script body runs and render as pending phases in the live view; `registerPhase()` titles are announced (deduplicated against `meta.phases`) before the first phase executes. Workflows that declare their phases with `registerPhase()` can omit `meta.phases` — the declarations themselves announce the outline. Runtime `phase()` calls still create phases as work starts, which suits conditional or loop-created phases; such phases appear in the live view once they begin.
 
 ### Determinism rules
 
@@ -85,6 +85,8 @@ const clean = results.filter(Boolean)
 
 Results are returned in input order. Failed branches return `null`.
 
+`parallel()` is a barrier — it awaits every lane before returning. For when a barrier is the right call versus `pipeline()`, see [authoring patterns](authoring-patterns.md).
+
 ### pipeline(items, ...stages)
 
 Run each item through sequential stages. Items fan out concurrently, but stages for each item run in order. The first argument is the **items array**; each stage is a **separate argument** after it.
@@ -102,6 +104,8 @@ const results = await pipeline(
 Each stage receives `(previousStageResult, originalItem, index)`. Failed items return `null`.
 
 > **Common mistake:** `pipeline([stage1, stage2])` is wrong — that passes a single array as the items argument. The stages must be spread as separate arguments after the items array: `pipeline(items, stage1, stage2)`.
+
+`pipeline()` is the default for multi-stage work: there is no barrier between stages, so wall-clock time is the slowest single-item chain. `parallel()` is a barrier and is correct only when the next step needs cross-lane context from all prior results. See the barrier rule in [authoring patterns](authoring-patterns.md).
 
 ### handoff(value, opts)
 
@@ -129,7 +133,9 @@ phase('Review')
 // ... agents run here appear under "Review"
 ```
 
-Phases are discovered as the script runs. Conditional and loop-created phases work naturally.
+Phases created this way are discovered as the script runs; conditional and loop-created phases work naturally. Phases declared up front — via `meta.phases` or `registerPhase()` — are visible as pending before they run. Prefer `registerPhase()` for top-level phases; `phase()` marks sub-phases inside a phase body.
+
+Calling `phase()` again with a title that already completed (for example a loop reusing one phase title) restarts it: the live view shows the phase as running again with its new agents, and it is re-marked done when the next phase starts or the workflow completes.
 
 ### log(message)
 
@@ -209,6 +215,42 @@ The `policy` parameter controls runtime defaults:
 ```
 
 Scripts read the frozen `policy` global but cannot override enforcement. Script-level `tools` requests narrow within policy bounds. Each subagent picks its model via the `model` option.
+
+## Phase status lifecycle
+
+Each phase in a workflow snapshot carries a `WorkflowPhaseStatus`:
+
+| Status | Marker | Entered when |
+|--------|--------|--------------|
+| `pending` | `○` | Declared via `meta.phases` or `registerPhase()` but not yet started. |
+| `running` | `▶` | The phase body starts executing. |
+| `done` | `✓` | The phase completes normally, including a gate that passed on a retry. |
+| `skipped` | `-` | `skipIf` returned true, or the workflow was aborted while the phase was running. |
+| `exhausted` | `⚠` | `maxIterations` was exhausted with the gate still failing. |
+
+Hosts embedding the runtime observe the lifecycle through `WorkflowRunOptions` callbacks:
+
+| Callback | Fires |
+|----------|-------|
+| `onPhaseRegistered(title)` | Once per declared phase title, in order — `meta.phases` titles before the sandboxed script body runs, then `registerPhase()` titles (deduplicated, so a title announced from `meta.phases` is not announced again) before the first phase executes. |
+| `onPhase(title)` | When a phase starts running. |
+| `onPhaseOutcome(title, status)` | After a phase finishes, with `'done'`, `'skipped'`, or `'exhausted'`. |
+
+`WorkflowRunResult.phases` remains a plain `string[]` of phase titles; the rich `{ title, status }` entries live on `WorkflowSnapshot.phases`.
+
+## Live progress budget
+
+`createWorkflowSnapshot(meta)` seeds the snapshot's `phases` from `meta.phases` as pending entries, so the outline is renderable before anything runs. `WorkflowSnapshot.phases` is `WorkflowPhaseSnapshot[]` — one `{ title, status }` per phase.
+
+`renderWorkflowLines(snapshot, options)` never returns more than `options.maxLines` lines (default 20), for any number of phases or agents. Within the budget:
+
+- Line 1 is the header.
+- Completed phases (`done`, `skipped`, `exhausted`) render exactly one summary line each — no agent rows beneath them.
+- The running phase renders its phase line plus up to `options.maxAgents` agent rows and the usual `… N earlier agents` overflow line.
+- Pending phases render one line each.
+- Logs render the last `options.maxLogs` lines.
+
+When content exceeds the budget, it is shed in a fixed order until it fits: pending phases beyond the first two collapse into a `… +N more phases` line, completed phases beyond the most recent two collapse into a `… +N earlier phases` line, agent rows under the running phase shrink (floor of two), then logs. The header and the running phase line are never dropped. The interactive `/workflow` inspector remains the place for per-agent detail on completed phases.
 
 ## Partial recovery
 

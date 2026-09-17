@@ -7,12 +7,15 @@ export type {
   WorkflowAgentSnapshotStatus,
   WorkflowDisplay,
   WorkflowDisplayOptions,
+  WorkflowPhaseSnapshot,
+  WorkflowPhaseStatus,
   WorkflowSnapshot,
 } from "./display.js";
 export {
   createToolUpdateWorkflowDisplay,
   createWidgetWorkflowDisplay,
   createWorkflowSnapshot,
+  phaseStatusIcon,
   preview,
   recomputeWorkflowSnapshot,
   renderWorkflowLines,

@@ -4,6 +4,8 @@
 
 The current workflow DSL intersperses `phase()` calls with `await agent()` chains — the DAG shape is invisible until execution completes. The `registerPhase()` DSL makes phases top-level declarations with automatic data flow. The full workflow shape is known before the first subagent runs, eliminating the `[object Promise]` footgun.
 
+The runtime announces every declared phase title before the first phase executes — `meta.phases` titles first (before the script body runs), then `registerPhase` titles, deduplicated against them. The live progress view therefore shows the entire outline as pending phases from the start, and each phase then moves through a visible status lifecycle (see below).
+
 ## Core API
 
 ### `registerPhase(name, body, options?)`
@@ -37,7 +39,7 @@ registerPhase("Name", async (input) => {
 | `body` | `(input: any) => Promise<any>` | Phase body. Receives preceding phase's return value. Undefined for first phase. Return flows to next phase. |
 | `options.gate` | `(output: any, upstreamOutput: any) => Promise<string \| null>` | Validates phase output. `null` → pass (advance to next phase). `string` → fail (retry). On retry, the failure string is injected into the body's subagent prompt as `<retry>` context. |
 | `options.maxIterations` | `number` | Max attempts including first run. Default 1. Gate present → default 3. After exhaustion, phase returns last output with `__phaseMeta.exhausted = true`. |
-| `options.skipIf` | `(input: any) => boolean` | If returns true, phase is skipped (does not run, shows "skipped" in UI). |
+| `options.skipIf` | `(input: any) => boolean` | If returns true, phase is skipped (does not run, phase status becomes `skipped`). |
 
 ### `handoff(value)` — unchanged
 
@@ -91,7 +93,19 @@ When `maxIterations` is exhausted (all attempts failed gate), the phase complete
 phase output = { ...actualBodyReturn, __phaseMeta: { exhausted: true, iteration: 3, gateError: "..." } }
 ```
 
-Downstream phases check `input.__phaseMeta?.exhausted` to decide whether to halt or continue.
+Downstream phases check `input.__phaseMeta?.exhausted` to decide whether to halt or continue. An exhausted phase is marked `exhausted` (`⚠`) in the progress view, distinct from a cleanly finished `done` phase.
+
+## Phase status lifecycle
+
+Each registered phase moves through a status lifecycle that drives the live progress view:
+
+- **pending** (`○`) — declared, not yet started. Every phase title is announced before the first phase executes (`meta.phases` titles first, `registerPhase` titles deduplicated against them), so the whole outline is visible as pending phases before any work runs.
+- **running** (`▶`) — the phase body is executing.
+- **done** (`✓`) — the phase completed normally, including a gate that passed on the first attempt or a retry.
+- **skipped** (`-`) — `skipIf` returned true; the body never runs.
+- **exhausted** (`⚠`) — `maxIterations` ran out with the gate still failing.
+
+Hosts observe outcomes through the `onPhaseOutcome(title, status)` runtime callback, which fires once after each phase finishes with `'done'`, `'skipped'`, or `'exhausted'`. The inline progress display collapses completed phases to a single summary line (`✓ Name 3/3`, `- Name (skipped)`, `⚠ Name (exhausted)`) and caps its total line count (`maxLines`, default 20); the interactive `/workflow` inspector shows per-agent detail for any phase, including completed and pending ones.
 
 ## Complete workflow example
 

@@ -143,6 +143,7 @@ The inspector test suite intentionally exercises a 40-agent workflow and a matri
 - `docs/teams.md`: mailbox/team patterns.
 - `docs/side-effects.md`: ownership and validation requirements.
 - `docs/register-phase-dsl.md`: phase/gate/retry semantics.
+- `docs/authoring-patterns.md`: composition patterns (pipeline vs parallel barriers, adversarial verify, judge panel, loop-until-dry, budget scaling).
 - `docs/adr/`: decisions. Keep superseded ADRs with their rationale; new decisions use numbered markdown files and include Status, Context, Decision, and Consequences.
 - `agents/*.md`: bundled role behavior. Role frontmatter documents intent; actual tool access is enforced by the `agent()` call.
 

@@ -15,10 +15,17 @@ export interface WorkflowAgentSnapshot {
   error?: string;
 }
 
+export type WorkflowPhaseStatus = "pending" | "running" | "done" | "skipped" | "exhausted";
+
+export interface WorkflowPhaseSnapshot {
+  title: string;
+  status: WorkflowPhaseStatus;
+}
+
 export interface WorkflowSnapshot {
   name: string;
   description?: string;
-  phases: string[];
+  phases: WorkflowPhaseSnapshot[];
   currentPhase?: string;
   logs: string[];
   agents: WorkflowAgentSnapshot[];
@@ -41,15 +48,17 @@ export interface WorkflowDisplayOptions {
   placement?: "aboveEditor" | "belowEditor";
   maxAgents?: number;
   maxLogs?: number;
+  maxLines?: number;
   showStatus?: boolean;
   showResultPreviews?: boolean;
 }
 
 export function createWorkflowSnapshot(meta: WorkflowMeta): WorkflowSnapshot {
+  const titles = uniqueStrings((meta.phases ?? []).map((metaPhase) => metaPhase.title));
   return {
     name: meta.name,
     description: meta.description,
-    phases: [],
+    phases: titles.map((title) => ({ title, status: "pending" as const })),
     logs: [],
     agents: [],
     agentCount: 0,
@@ -127,9 +136,94 @@ export function createToolUpdateWorkflowDisplay(
   };
 }
 
+interface PhaseRenderEntry {
+  title: string;
+  status: WorkflowPhaseStatus;
+  agents: WorkflowAgentSnapshot[];
+}
+
+function isTerminalPhaseStatus(status: WorkflowPhaseStatus): boolean {
+  return status === "done" || status === "skipped" || status === "exhausted";
+}
+
+function isSettledAgentStatus(status: WorkflowAgentSnapshotStatus): boolean {
+  return status === "done" || status === "error" || status === "skipped";
+}
+
+/**
+ * Resolve the ordered phase list to render: declared snapshot phases first (their recorded
+ * status wins), then the current phase, then runtime-created phases inferred from agent
+ * `phase` labels that were never declared.
+ */
+function resolvePhaseEntries(snapshot: WorkflowSnapshot): PhaseRenderEntry[] {
+  const agentsByPhase = new Map<string, WorkflowAgentSnapshot[]>();
+  for (const agent of snapshot.agents) {
+    if (!agent.phase) continue;
+    const existing = agentsByPhase.get(agent.phase);
+    if (existing) existing.push(agent);
+    else agentsByPhase.set(agent.phase, [agent]);
+  }
+
+  const entries: PhaseRenderEntry[] = snapshot.phases.map((declared) => ({
+    title: declared.title,
+    status: declared.status === "pending" && snapshot.currentPhase === declared.title ? "running" : declared.status,
+    agents: agentsByPhase.get(declared.title) ?? [],
+  }));
+  const knownTitles = new Set(entries.map((entry) => entry.title));
+
+  const upsert = (title: string, status: WorkflowPhaseStatus) => {
+    if (knownTitles.has(title)) return;
+    knownTitles.add(title);
+    entries.push({ title, status, agents: agentsByPhase.get(title) ?? [] });
+  };
+
+  if (snapshot.currentPhase) upsert(snapshot.currentPhase, "running");
+  const agentPhaseNames = uniqueStrings(
+    snapshot.agents.map((agent) => agent.phase).filter((phase): phase is string => Boolean(phase)),
+  );
+  for (const title of agentPhaseNames) {
+    const agents = agentsByPhase.get(title) ?? [];
+    const settled = agents.length > 0 && agents.every((agent) => isSettledAgentStatus(agent.status));
+    upsert(title, settled ? "done" : agents.length > 0 ? "running" : "pending");
+  }
+  return entries;
+}
+
+function terminalPhaseLine(entry: PhaseRenderEntry): string {
+  const icon = phaseStatusIcon(entry.status);
+  if (entry.status === "done") {
+    const done = entry.agents.filter((agent) => agent.status === "done").length;
+    return `  ${icon} ${entry.title} ${done}/${entry.agents.length}`;
+  }
+  const note = entry.status === "skipped" ? "skipped" : "exhausted";
+  return `  ${icon} ${entry.title} (${note})`;
+}
+
+function runningPhaseLine(entry: PhaseRenderEntry): string {
+  const done = entry.agents.filter((agent) => agent.status === "done").length;
+  const running = entry.agents.filter((agent) => agent.status === "running").length;
+  const errors = entry.agents.filter((agent) => agent.status === "error").length;
+  const skipped = entry.agents.filter((agent) => agent.status === "skipped").length;
+  const counts = [
+    running ? `${running} running` : "",
+    errors ? `${errors} errors` : "",
+    skipped ? `${skipped} skipped` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const suffix = counts ? ` · ${counts}` : "";
+  return `  ${phaseStatusIcon("running")} ${entry.title} ${done}/${entry.agents.length}${suffix}`;
+}
+
+function agentLine(agent: WorkflowAgentSnapshot, showResultPreviews: boolean): string {
+  const result = showResultPreviews && agent.resultPreview ? ` — ${agent.resultPreview}` : "";
+  return `    #${agent.id} ${statusIcon(agent.status)} ${shorten(agent.label, 48)}${result}`;
+}
+
 export function renderWorkflowLines(snapshot: WorkflowSnapshot, options: WorkflowDisplayOptions = {}): string[] {
   const maxAgents = options.maxAgents ?? 8;
   const maxLogs = options.maxLogs ?? 2;
+  const maxLines = options.maxLines ?? 20;
   const showResultPreviews = options.showResultPreviews ?? false;
   const state =
     snapshot.errorCount > 0
@@ -137,55 +231,92 @@ export function renderWorkflowLines(snapshot: WorkflowSnapshot, options: Workflo
       : snapshot.runningCount > 0
         ? `, ${snapshot.runningCount} running`
         : "";
+
+  const entries = resolvePhaseEntries(snapshot);
+  const terminalEntries = entries.filter((entry) => isTerminalPhaseStatus(entry.status));
+  const runningEntries = entries.filter((entry) => entry.status === "running");
+  const pendingEntries = entries.filter((entry) => entry.status === "pending");
+  const unphasedAgents = snapshot.agents.filter((agent) => !agent.phase);
+  const unphasedVisible = unphasedAgents.slice(-maxAgents);
+
+  // Line-budget shedding: pending phases beyond the first 2, then completed phases beyond
+  // the most recent 2, then running-phase agent rows down to 2, then logs. The header and
+  // the running phase line itself are never shed.
+  let terminalKeep = terminalEntries.length;
+  let pendingKeep = pendingEntries.length;
+  let agentCap = maxAgents;
+  let logKeep = Math.min(snapshot.logs.length, maxLogs);
+
+  const countLines = () => {
+    let count = 1; // header
+    count += terminalKeep + (terminalEntries.length > terminalKeep ? 1 : 0);
+    for (const entry of runningEntries) {
+      count += 1 + Math.min(entry.agents.length, agentCap) + (entry.agents.length > agentCap ? 1 : 0);
+    }
+    count += pendingKeep + (pendingEntries.length > pendingKeep ? 1 : 0);
+    if (unphasedAgents.length > 0) count += 1 + unphasedVisible.length;
+    if (logKeep > 0 && count > 1) count += 1 + logKeep;
+    return count;
+  };
+  const fits = () => countLines() <= maxLines;
+
+  while (!fits() && pendingKeep > Math.min(2, pendingEntries.length)) pendingKeep--;
+  while (!fits() && terminalKeep > Math.min(2, terminalEntries.length)) terminalKeep--;
+  while (!fits() && agentCap > 2) agentCap--;
+  while (!fits() && logKeep > 0) logKeep--;
+
   const lines = [`◆ Workflow: ${snapshot.name} (${snapshot.doneCount}/${snapshot.agentCount} done${state})`];
+  const runningLineIndexes: number[] = [];
+  const keptTerminalTitles = new Set(
+    (terminalKeep > 0 ? terminalEntries.slice(-terminalKeep) : []).map((entry) => entry.title),
+  );
+  const keptPendingTitles = new Set(pendingEntries.slice(0, pendingKeep).map((entry) => entry.title));
+  let collapsedTerminal = false;
+  let collapsedPending = false;
 
-  const agentPhaseNames = snapshot.agents
-    .map((agent) => agent.phase)
-    .filter((phase): phase is string => Boolean(phase));
-  const phaseNames = uniqueStrings([
-    ...snapshot.phases,
-    ...(snapshot.currentPhase ? [snapshot.currentPhase] : []),
-    ...agentPhaseNames,
-  ]);
-  const rendered = new Set<WorkflowAgentSnapshot>();
-
-  for (const phase of phaseNames) {
-    const agents = snapshot.agents.filter((agent) => agent.phase === phase);
-    if (agents.length === 0 && snapshot.currentPhase !== phase) continue;
-    for (const agent of agents) rendered.add(agent);
-    const done = agents.filter((agent) => agent.status === "done").length;
-    const running = agents.filter((agent) => agent.status === "running").length;
-    const errors = agents.filter((agent) => agent.status === "error").length;
-    const skipped = agents.filter((agent) => agent.status === "skipped").length;
-    const complete = agents.length > 0 && done + errors + skipped === agents.length;
-    const marker = running > 0 || (!complete && snapshot.currentPhase === phase) ? "▶" : complete ? "✓" : " ";
-    lines.push(
-      `  ${marker} ${phase} ${done}/${agents.length}${running ? ` · ${running} running` : ""}${errors ? ` · ${errors} errors` : ""}${skipped ? ` · ${skipped} skipped` : ""}`,
-    );
-
-    const visibleAgents = agents.slice(-maxAgents);
-    for (const agent of visibleAgents) {
-      const order = `#${agent.id}`;
-      const result = showResultPreviews && agent.resultPreview ? ` — ${agent.resultPreview}` : "";
-      lines.push(`    ${order} ${statusIcon(agent.status)} ${shorten(agent.label, 48)}${result}`);
+  for (const entry of entries) {
+    if (isTerminalPhaseStatus(entry.status)) {
+      if (keptTerminalTitles.has(entry.title)) {
+        lines.push(terminalPhaseLine(entry));
+      } else if (!collapsedTerminal) {
+        lines.push(`  … +${terminalEntries.length - terminalKeep} earlier phases`);
+        collapsedTerminal = true;
+      }
+    } else if (entry.status === "running") {
+      runningLineIndexes.push(lines.length);
+      lines.push(runningPhaseLine(entry));
+      const visibleAgents = entry.agents.slice(-agentCap);
+      for (const agent of visibleAgents) lines.push(agentLine(agent, showResultPreviews));
+      if (entry.agents.length > visibleAgents.length)
+        lines.push(`    … ${entry.agents.length - visibleAgents.length} earlier agents`);
+    } else if (keptPendingTitles.has(entry.title)) {
+      lines.push(`  ${phaseStatusIcon("pending")} ${entry.title}`);
+    } else if (!collapsedPending) {
+      lines.push(`  … +${pendingEntries.length - pendingKeep} more phases`);
+      collapsedPending = true;
     }
-    if (agents.length > visibleAgents.length)
-      lines.push(`    … ${agents.length - visibleAgents.length} earlier agents`);
   }
 
-  const unphased = snapshot.agents.filter((agent) => !rendered.has(agent));
-  if (unphased.length) {
+  if (unphasedAgents.length) {
     lines.push("  Unphased");
-    for (const agent of unphased.slice(-maxAgents)) {
-      const result = showResultPreviews && agent.resultPreview ? ` — ${agent.resultPreview}` : "";
-      lines.push(`    #${agent.id} ${statusIcon(agent.status)} ${shorten(agent.label, 48)}${result}`);
-    }
+    for (const agent of unphasedVisible) lines.push(agentLine(agent, showResultPreviews));
   }
 
-  const visibleLogs = snapshot.logs.slice(-maxLogs);
+  const visibleLogs = snapshot.logs.slice(-logKeep);
   if (visibleLogs.length) {
     if (lines.length > 1) lines.push("");
     for (const log of visibleLogs) lines.push(`  log: ${log}`);
+  }
+
+  if (lines.length > maxLines) {
+    // Pathological inputs (e.g. huge unphased agent counts after all shedding floors are
+    // reached): drop lines from the end, never the header or a running phase line.
+    const protectedIndexes = new Set<number>([0, ...runningLineIndexes]);
+    for (let i = lines.length - 1; i >= 1 && lines.length > maxLines; i--) {
+      if (protectedIndexes.has(i)) continue;
+      lines.splice(i, 1);
+    }
+    if (lines.length > maxLines) lines.length = maxLines;
   }
   return lines;
 }
@@ -218,6 +349,21 @@ export function statusIcon(status: WorkflowAgentSnapshotStatus): string {
       return "✗";
     case "skipped":
       return "-";
+  }
+}
+
+export function phaseStatusIcon(status: WorkflowPhaseStatus): string {
+  switch (status) {
+    case "pending":
+      return "○";
+    case "running":
+      return "▶";
+    case "done":
+      return "✓";
+    case "skipped":
+      return "-";
+    case "exhausted":
+      return "⚠";
   }
 }
 

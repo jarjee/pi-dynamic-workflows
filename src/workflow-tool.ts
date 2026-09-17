@@ -5,12 +5,14 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { ActiveWorkflowStore } from "./active-workflow.js";
+import type { WorkflowAgent } from "./agent.js";
 import {
   createToolUpdateWorkflowDisplay,
   createWorkflowSnapshot,
   preview,
   recomputeWorkflowSnapshot,
   renderWorkflowText,
+  type WorkflowPhaseStatus,
   type WorkflowSnapshot,
 } from "./display.js";
 import { docsDir, packageRoot } from "./paths.js";
@@ -50,8 +52,11 @@ const workflowDisplayOptions = {
   streamToolUpdates: true,
   maxAgents: 4,
   maxLogs: 1,
+  maxLines: 20,
   showResultPreviews: false,
 } as const;
+
+const TERMINAL_PHASE_STATUSES: ReadonlySet<WorkflowPhaseStatus> = new Set(["done", "skipped", "exhausted"]);
 
 const WORKFLOW_MINIMAL_EXAMPLE = [
   'export const meta = { name: "example", description: "..." }',
@@ -81,6 +86,8 @@ export interface WorkflowToolOptions {
   extensionTools?: ToolDefinition[];
   /** Host extension tool names inherited from the parent Pi session (e.g. MCP tools). Evaluated per workflow execution when a function is supplied. */
   hostToolNames?: string[] | (() => string[]);
+  /** Custom subagent runner used instead of the default WorkflowAgent. Primarily a test seam for embedding hosts. */
+  agent?: Pick<WorkflowAgent, "run"> & Partial<Pick<WorkflowAgent, "abortAll" | "disposeAll">>;
   /** Shared active workflow state used by interactive UI surfaces such as /workflow. */
   activeWorkflowStore?: ActiveWorkflowStore;
 }
@@ -106,6 +113,8 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       "",
       `Use \`registerPhase(name, body, options?)\` to declare phases at the top level. Phases execute in declaration order. The body receives the previous phase's return value. The body's return value flows to the next phase automatically — no manual wiring needed. This kills the [object Promise] footgun at its source.`,
       `Place ALL registerPhase() calls at the top level of the script body, synchronously, before any top-level await. registerPhase calls placed after a top-level await will not appear in the phase outline until that await resolves.`,
+      `Declared phases are visible up front: the meta.phases / registerPhase() outline renders as pending phases in the progress UI before any phase runs, so the user sees the full plan immediately. Prefer declaring phases over leaving work implicit.`,
+      `Progress rendering is bounded: the display never exceeds a fixed line budget no matter how many phases or subagents run, and completed phases collapse to a single summary line each. Declare as many phases as the plan needs.`,
       "",
       `All existing primitives work inside phase bodies: agent(), spawn(), parallel(), pipeline(), handoff(), log(), mailbox.`,
       "",
@@ -160,6 +169,23 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       `    (analysis, file, index) => agent("Fix " + file + ": " + analysis, { label: "fix " + file, model: "provider/code-model" }),`,
       `  )`,
       `Common mistake: \`pipeline([stage1, stage2])\` is WRONG — that passes a single array as the items argument. The stages must be spread as separate arguments after the items array.`,
+      "",
+      `# Authoring Patterns`,
+      "",
+      `Compact patterns for multi-stage and fan-out work. The full catalog with worked examples is at ${docsDir}/authoring-patterns.md.`,
+      "",
+      `- pipeline() is the DEFAULT for multi-stage work: items flow through stages with no barrier, so item A can be in stage 3 while item B is in stage 1, and wall-clock tracks the slowest single-item chain. parallel() is a BARRIER — it awaits every lane before returning. Use a barrier only when the next step genuinely needs ALL lane results: dedup/merge across the full set before expensive downstream work, early-exit when the total is zero, or one synthesis prompt over every lane. Needing to flatten/map/filter does not justify a barrier — do it inside a pipeline stage. Example: 5 finder lanes where the slowest takes 3x the fastest — a barrier leaves the 4 fast lanes idle for 2/3 of the run.`,
+      `- Adversarial verify: a single reviewer lets plausible-but-wrong findings through. Spawn independent skeptic subagents prompted to REFUTE each finding (instruct them: when uncertain, refute), collect schema-constrained verdicts, then drop findings most refuters reject with a plain-JS count:`,
+      '  const verdicts = await parallel(findings.map(f => () => agent("Try to REFUTE this finding; if uncertain, refute it. Finding:\\n" + handoff(f), { label: "refute " + f.id, model: "provider/reasoning-model", schema: { type: "object", properties: { refuted: { type: "boolean" } }, required: ["refuted"] }, retry: { attempts: 2 } })))',
+      "  const kept = findings.filter((f, i) => verdicts[i] && !verdicts[i].refuted)",
+      `When a finding can fail in more than one way, give refuters distinct lenses (correctness, security, does-it-reproduce) instead of N identical refuter prompts. The package:critic role suits skeptic lanes.`,
+      `- Budget-scaled fan-out: budget is a frozen global offering total / spent() / remaining(). budget.total is null and remaining() is Infinity when no target is set — a loop guarded only by remaining() runs forever. Guard loops on budget.total and scale fleet size from it:`,
+      "  while (dryRounds < 2 && (budget.total === null || budget.remaining() > 20000)) { const round = await findMore(seen); dryRounds = round.length === 0 ? dryRounds + 1 : 0 }",
+      "  const fleet = budget.total === null ? 4 : Math.floor(budget.total / 20000)",
+      `- Loop-until-dry: for discovery of unknown size (bugs, edge cases), keep spawning finder lanes until K consecutive rounds return nothing new, deduping each round against a seen-set of everything found so far — simple count caps miss the tail.`,
+      `- No silent caps: when coverage is bounded (top-N, sampling, dropped lanes), log() what was excluded. Failed lanes already return null; after results.filter(Boolean), log() what was lost so the output does not read as exhaustive.`,
+      `- Completeness critic: end with a subagent asked what is missing — modality not run, claim unverified, source unread; what it finds becomes the next round of work.`,
+      `- Compose freely: judge panels (N attempts scored by parallel judges), multi-modal sweeps (one lane per search angle), and staged escalation are combinations of these blocks — and a registerPhase gate + maxIterations already models self-repair loops natively.`,
       "",
       `# Side Effects & Validation`,
       "",
@@ -259,9 +285,46 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       };
 
       try {
-        const recordPhase = (title: string | undefined) => {
-          if (!title) return;
-          if (!snapshot.phases.includes(title)) snapshot.phases.push(title);
+        const findPhase = (title: string) => snapshot.phases.find((phase) => phase.title === title);
+
+        /**
+         * Upsert a phase entry: add `{ title, status }` when no entry with that
+         * title exists, otherwise apply an explicit status transition. Never
+         * downgrades a terminal status (done/skipped/exhausted) back to
+         * pending/running — except an authoritative phase start
+         * (`options.reenter`): a runtime `phase()` call that re-enters a title
+         * legitimately restarts it, so the live view must show it running again
+         * instead of a stale terminal summary. Inferred signals (agent starts,
+         * registration announcements) keep the guard so late/queued events
+         * cannot resurrect a completed phase. Transitions replace the entry
+         * immutably so already emitted snapshots keep the statuses they were
+         * rendered with. Returns whether the snapshot changed.
+         */
+        const upsertPhase = (
+          title: string,
+          status: WorkflowPhaseStatus,
+          options: { reenter?: boolean } = {},
+        ): boolean => {
+          const existing = findPhase(title);
+          if (!existing) {
+            snapshot.phases = [...snapshot.phases, { title, status }];
+            return true;
+          }
+          if (
+            TERMINAL_PHASE_STATUSES.has(existing.status) &&
+            !TERMINAL_PHASE_STATUSES.has(status) &&
+            !options.reenter
+          ) {
+            return false;
+          }
+          if (existing.status === status) return false;
+          snapshot.phases = snapshot.phases.map((phase) => (phase.title === title ? { ...phase, status } : phase));
+          return true;
+        };
+
+        /** Finalize every phase still marked running (completion or abort). */
+        const finalizeRunningPhases = (status: "done" | "skipped") => {
+          snapshot.phases = snapshot.phases.map((phase) => (phase.status === "running" ? { ...phase, status } : phase));
         };
 
         const completedResults = new Map<string, unknown>();
@@ -271,6 +334,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
             cwd: options.cwd ?? ctx.cwd,
             args: params.args,
             signal,
+            agent: options.agent,
             concurrency: options.concurrency,
             hardAbortGraceMs: options.hardAbortGraceMs,
             policy: params.policy,
@@ -286,19 +350,33 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
               update();
             },
             onPhase(title) {
+              // The previous current phase, if not already terminal, completes
+              // when a new phase starts; the new phase becomes running.
+              const previousTitle = snapshot.currentPhase;
+              if (previousTitle && previousTitle !== title) {
+                const previous = findPhase(previousTitle);
+                if (previous && !TERMINAL_PHASE_STATUSES.has(previous.status)) upsertPhase(previousTitle, "done");
+              }
               snapshot.currentPhase = title;
-              recordPhase(title);
+              // A phase start is authoritative: re-entering a title (e.g. a
+              // loop reusing one phase()) restarts it even if a previous run
+              // already recorded a terminal outcome.
+              upsertPhase(title, "running", { reenter: true });
               update();
             },
             onPhaseRegistered(title) {
               // Record the full registered phase outline up front (without
-              // changing currentPhase) so the display shows all phases
-              // before the execution loop reaches each one.
-              recordPhase(title);
+              // changing currentPhase) so the display shows all phases as
+              // pending before the execution loop reaches each one.
+              if (upsertPhase(title, "pending")) update();
+            },
+            onPhaseOutcome(title, status) {
+              upsertPhase(title, status);
+              update();
             },
             onAgentStart(event) {
               if (signal?.aborted) throw new Error("Workflow was aborted");
-              recordPhase(event.phase);
+              if (event.phase) upsertPhase(event.phase, "running");
               snapshot.agents.push({
                 id: snapshot.agents.length + 1,
                 label: event.label,
@@ -331,6 +409,9 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
                 agent.error = "aborted";
               }
             }
+            // Match the agent-level skipped semantics: any phase still running
+            // when the workflow aborts is recorded as skipped.
+            finalizeRunningPhases("skipped");
             completeDisplay();
             throw new Error("Workflow was aborted");
           }
@@ -357,6 +438,8 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
 
         snapshot.result = result.result;
         snapshot.durationMs = result.durationMs;
+        // Successful completion: any phase still marked running is done.
+        finalizeRunningPhases("done");
         completeDisplay();
 
         const mailboxText = result.mailbox
@@ -373,7 +456,9 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           details: {
             ...snapshot,
             meta: result.meta,
-            phases: result.phases,
+            // `phases` is intentionally NOT overridden with result.phases (plain
+            // strings): the details must carry the rich WorkflowPhaseSnapshot[]
+            // statuses from the live snapshot.
             logs: result.logs,
             result: result.result,
             durationMs: result.durationMs,
@@ -481,7 +566,7 @@ function formatRecoveryMessage(error: unknown, recovery: RecoveryInfo, snapshot:
   lines.push(
     `\nCompleted: ${recovery.completedAgents.length} agent(s), Failed: ${recovery.failedAgents.length}, Running: ${recovery.runningAgents.length}`,
   );
-  lines.push(`Phases reached: ${snapshot.phases.join(", ") || "(none)"}`);
+  lines.push(`Phases reached: ${snapshot.phases.map((phase) => phase.title).join(", ") || "(none)"}`);
 
   if (recovery.completedAgents.length > 0) {
     lines.push(`\nRecovery directory: ${recovery.recoveryDir}`);

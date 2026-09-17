@@ -10,7 +10,7 @@ A workflow is plain JavaScript (no TypeScript, no imports, no `require`, no `fs`
 export const meta = { name: 'my_workflow', description: 'What this workflow does' }
 ```
 
-`name` and `description` are required. `meta.phases` is optional static documentation — live progress is driven by `phase()` calls at runtime. The script must call `agent()` or `spawn()` at least once.
+`name` and `description` are required. `meta.phases` is an optional upfront outline — its titles are announced before the script body runs and appear as pending phases in the live view. `registerPhase()` declarations are announced the same way (deduplicated against `meta.phases`), and runtime `phase()` calls still group agents as work starts. The script must call `agent()` or `spawn()` at least once.
 
 `Date.now()`, `new Date()`, and `Math.random()` are unavailable — workflow orchestration logic must be deterministic. Subagents can use any tools they're given. Built-in coding tools are 'read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'. Extension tools (MCP, project-specific) registered at the pi host level are also available by name in the `tools` array.
 
@@ -61,6 +61,30 @@ If a workflow script itself fails (runtime error, not a subagent failure), the t
 ## Abort handling
 
 When the user presses Esc, all active subagents are aborted. Workflow scripts should not use `try/catch` around `agent()` to handle subagent failures — failed `agent()` calls return `null` rather than throwing. Abort errors propagate out of the workflow runtime automatically; there is no `isUncatchable` global to call.
+
+## Composition: parallel() vs pipeline()
+
+`pipeline(items, ...stages)` is the default for multi-stage work. Items fan out concurrently and each flows through the stages independently — there is no barrier between stages, so one item can be in its last stage while another is still in its first. Wall-clock time is the slowest single-item chain, not the sum of the slowest stages.
+
+`parallel(thunks)` is a barrier: it awaits every lane before returning. Use it only when the next step genuinely needs cross-lane context from all prior results — deduping or merging across the full set before expensive downstream work, exiting early when the total is zero, or a synthesis prompt that references the other lanes' findings. Needing to flatten, map, or filter between steps is not a reason to barrier: do the transform inside a pipeline stage. Conceptually separate stages are not synchronized stages.
+
+The full decision guide — wall-clock examples plus the quality patterns that build on this choice (adversarial verify, judge panel, loop-until-dry, budget-scaled fan-out) — is in [Workflow Authoring Patterns](docs/authoring-patterns.md).
+
+## Phase status and live progress
+
+Every phase in the live progress view carries a status:
+
+| Status | Marker | Meaning |
+|--------|--------|---------|
+| `pending` | `○` | Declared (via `meta.phases` or `registerPhase`) but not started yet. |
+| `running` | `▶` | Currently executing. |
+| `done` | `✓` | Finished normally, including a gate that passed on a retry. |
+| `skipped` | `-` | `skipIf` returned true, or the workflow was aborted mid-phase. |
+| `exhausted` | `⚠` | Gate retries ran out (`__phaseMeta.exhausted`). |
+
+The full phase outline is announced before the first subagent runs: `meta.phases` titles are announced before the script body starts, and `registerPhase()` declarations are announced (deduplicated) before the first phase executes. Pending phases are visible from the start, so progress reads as a plan being executed rather than a log being appended.
+
+Progress rendering is bounded. The inline view never exceeds a line budget (`maxLines`, default 20), no matter how many phases or subagents the workflow has. Completed phases render as one summary line each, and when content overflows the budget it is shed in a fixed order: pending phases beyond the first two collapse into a `… +N more phases` line, completed phases beyond the most recent two collapse into a `… +N earlier phases` line, then agent rows under the running phase shrink (down to two), then logs. The header and the running phase line are never dropped. Use the `/workflow` inspector for per-agent detail on any phase, including completed ones.
 
 ## Examples
 
@@ -240,6 +264,22 @@ Full reference for all globals, agent/spawn options, and runtime behavior.
 **Read this when:** using `pipeline()`, `schema`, `retry`, `timeoutSeconds`, `role`, runtime `policy`, `budget`, or `handoff()` with custom `inlineLimit`. Also covers the determinism rules, meta format, and structured output contract.
 
 **Keywords:** pipeline stages, JSON Schema, structured_output, retry backoff, timeout, reusable roles (package:reviewer, package:critic, package:planner, package:synthesizer, package:scout, package:worker), policy maxConcurrency, defaultTools, projectRoles, token budget, handoff inlineLimit, meta.phases, determinism sandbox.
+
+### [Phase Registration DSL](docs/register-phase-dsl.md)
+
+Top-level phase declarations with automatic data flow, gate/retry semantics, and the phase status lifecycle.
+
+**Read this when:** using `registerPhase()`, `gate`, `maxIterations`, or `skipIf`, or when you care about how phases appear in the live progress view (pending outline, skipped/exhausted markers).
+
+**Keywords:** registerPhase, phase status, pending, running, done, skipped, exhausted, gate, maxIterations, skipIf, onPhaseOutcome, phase outline, bounded progress.
+
+### [Workflow Authoring Patterns](docs/authoring-patterns.md)
+
+The barrier rule for choosing `parallel()` vs `pipeline()`, and the quality-pattern catalog: adversarial verify, perspective-diverse verify, judge panel, loop-until-dry, budget-scaled fan-out, multi-modal sweep, completeness critic, no silent caps, and composing them with gates.
+
+**Read this when:** deciding between `parallel()` and `pipeline()`, verifying findings adversarially before reporting them, discovering unknown-size work (bugs, edge cases, coverage gaps), scaling fan-out to a token budget, or bounding coverage without hiding what was dropped.
+
+**Keywords:** barrier rule, pipeline vs parallel, wall clock, adversarial verify, skeptic, refuter, verdict schema, judge panel, lens, loop-until-dry, seen-set, budget scaling, fleet size, multi-modal sweep, completeness critic, silent caps, coverage log, tournament, self-repair.
 
 ### [Team Composition & Mailbox](docs/teams.md)
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { matchesKey, visibleWidth } from "@earendil-works/pi-tui";
-import type { WorkflowSnapshot } from "../src/index.js";
+import type { WorkflowPhaseSnapshot, WorkflowPhaseStatus, WorkflowSnapshot } from "../src/index.js";
 import { createActiveWorkflowStore, createWorkflowInspector, recomputeWorkflowSnapshot } from "../src/index.js";
 
 // ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ function snapshot(overrides: Partial<WorkflowSnapshot> = {}): WorkflowSnapshot {
   return recomputeWorkflowSnapshot({
     name: "demo_workflow",
     description: "Demo workflow",
-    phases: ["Scan"],
+    phases: [phase("Scan", "running")],
     logs: [],
     agents: [{ id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "running" }],
     agentCount: 0,
@@ -37,6 +37,10 @@ function snapshot(overrides: Partial<WorkflowSnapshot> = {}): WorkflowSnapshot {
     errorCount: 0,
     ...overrides,
   });
+}
+
+function phase(title: string, status: WorkflowPhaseStatus = "pending"): WorkflowPhaseSnapshot {
+  return { title, status };
 }
 
 function keybindings(overrides: Partial<Record<string, string>> = {}) {
@@ -106,7 +110,7 @@ test("space toggles a single phase expansion", () => {
         { id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "running" },
         { id: 2, label: "review diff", phase: "Review", prompt: "Review", status: "running" },
       ],
-      phases: ["Scan", "Review"],
+      phases: [phase("Scan", "running"), phase("Review", "running")],
     },
   });
 
@@ -137,7 +141,7 @@ test("right arrow expands a collapsed phase", () => {
         { id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "done" },
         { id: 2, label: "review diff", phase: "Review", prompt: "Review", status: "running" },
       ],
-      phases: ["Scan", "Review"],
+      phases: [phase("Scan", "done"), phase("Review", "running")],
     },
   });
 
@@ -163,7 +167,7 @@ test("left arrow collapses an expanded phase", () => {
         { id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "running" },
         { id: 2, label: "review diff", phase: "Review", prompt: "Review", status: "done" },
       ],
-      phases: ["Scan", "Review"],
+      phases: [phase("Scan", "running"), phase("Review", "done")],
     },
   });
 
@@ -338,7 +342,7 @@ test("ctrl+o toggles global expanded and clears phase overrides", () => {
         { id: 2, label: "review api", phase: "Review", prompt: "Review", status: "running" },
         { id: 3, label: "review ui", phase: "Review", prompt: "Review", status: "queued" },
       ],
-      phases: ["Scan", "Review"],
+      phases: [phase("Scan", "running"), phase("Review", "running")],
     },
   });
 
@@ -374,7 +378,7 @@ test("local phase override cleared when toggled back to match global", () => {
         { id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "running" },
         { id: 2, label: "review api", phase: "Review", prompt: "Review", status: "running" },
       ],
-      phases: ["Scan", "Review"],
+      phases: [phase("Scan", "running"), phase("Review", "running")],
     },
   });
 
@@ -404,7 +408,7 @@ test("selection remains valid when ctrl+o collapses and agent rows disappear", (
     getToolsExpanded: () => true,
     snapshotOverrides: {
       agents: [{ id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "running" }],
-      phases: ["Scan"],
+      phases: [phase("Scan", "running")],
     },
   });
 
@@ -423,7 +427,7 @@ test("space toggles the phase after ctrl+o collapse from agent row", () => {
     getToolsExpanded: () => true,
     snapshotOverrides: {
       agents: [{ id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "running" }],
-      phases: ["Scan"],
+      phases: [phase("Scan", "running")],
     },
   });
 
@@ -455,7 +459,7 @@ test("selection stays valid after live subscription update adds agents", () => {
   active.update(
     snapshot({
       currentPhase: "Review",
-      phases: ["Scan", "Review"],
+      phases: [phase("Scan", "done"), phase("Review", "running")],
       agents: [
         { id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "done", resultPreview: "ok" },
         { id: 2, label: "review api", phase: "Review", prompt: "Review", status: "running" },
@@ -518,6 +522,7 @@ test("phase status icon shows ✓ when all agents are done", () => {
   const { inspector } = makeInspector({
     getToolsExpanded: () => true,
     snapshotOverrides: {
+      phases: [phase("Scan", "done")],
       agents: [{ id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "done" }],
     },
   });
@@ -534,20 +539,55 @@ test("phase status icon shows ▶ when agents are running", () => {
   assert.ok(findLine(bodyLines(inspector), "▸ ▶ Scan"), "▶ icon for running phase");
 });
 
-test("phase status icon shows ✗ when any agent has error", () => {
+test("runtime-created phase falls back to a stats-based ✗ icon on agent error", () => {
   const { inspector } = makeInspector({
     getToolsExpanded: () => false,
     snapshotOverrides: {
+      phases: [],
       agents: [{ id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "error", error: "fail" }],
     },
   });
-  assert.ok(findLine(bodyLines(inspector), "▸ ✗ Scan"), "✗ icon for error phase");
+  assert.ok(findLine(bodyLines(inspector), "▸ ✗ Scan"), "✗ stats icon for undeclared error phase");
 });
 
-test("phase status icon shows - when all agents are skipped", () => {
+test("declared running phase keeps its ▶ icon and surfaces errors in counts", () => {
+  const { inspector } = makeInspector({
+    getToolsExpanded: () => false,
+    snapshotOverrides: {
+      phases: [phase("Scan", "running")],
+      agents: [{ id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "error", error: "fail" }],
+    },
+  });
+  const line = findLine(bodyLines(inspector), "Scan");
+  assert.ok(line?.includes("▸ ▶ Scan"), "declared running status wins over stats");
+  assert.ok(line?.includes("1 errors"), "agent errors still surface in the phase counts");
+});
+
+test("declared skipped and exhausted phases use their status icons", () => {
+  const { inspector: skipped } = makeInspector({
+    getToolsExpanded: () => false,
+    snapshotOverrides: {
+      phases: [phase("Scan", "skipped")],
+      agents: [],
+    },
+  });
+  assert.ok(findLine(bodyLines(skipped), "▸ - Scan"), "- icon for declared skipped phase");
+
+  const { inspector: exhausted } = makeInspector({
+    getToolsExpanded: () => false,
+    snapshotOverrides: {
+      phases: [phase("Gate", "exhausted")],
+      agents: [{ id: 1, label: "gate check", phase: "Gate", prompt: "Gate", status: "done" }],
+    },
+  });
+  assert.ok(findLine(bodyLines(exhausted), "▸ ⚠ Gate"), "⚠ icon for declared exhausted phase");
+});
+
+test("runtime-created phases with no status entry keep stats-based icons", () => {
   const { inspector: ins1 } = makeInspector({
     getToolsExpanded: () => false,
     snapshotOverrides: {
+      phases: [],
       agents: [{ id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "queued" }],
     },
   });
@@ -556,10 +596,106 @@ test("phase status icon shows - when all agents are skipped", () => {
   const { inspector: ins2 } = makeInspector({
     getToolsExpanded: () => false,
     snapshotOverrides: {
+      phases: [],
       agents: [{ id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "skipped" }],
     },
   });
-  assert.ok(findLine(bodyLines(ins2), "▸ - Scan"), "- icon for skipped phase");
+  assert.ok(findLine(bodyLines(ins2), "▸ - Scan"), "- icon for skipped agents phase");
+});
+
+// ---------------------------------------------------------------------------
+// Pending phase outline
+// ---------------------------------------------------------------------------
+
+test("pending phases render as selectable rows with a pending hint", () => {
+  const { inspector } = makeInspector({
+    getToolsExpanded: () => false,
+    snapshotOverrides: {
+      currentPhase: "Review",
+      phases: [phase("Scan", "done"), phase("Review", "running"), phase("Synthesize", "pending")],
+      agents: [
+        { id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "done", resultPreview: "ok" },
+        { id: 2, label: "review api", phase: "Review", prompt: "Review", status: "running" },
+      ],
+    },
+  });
+
+  const lines = bodyLines(inspector);
+  assert.ok(findLine(lines, "▸ ✓ Scan"), "completed phase renders as a phase row");
+  assert.ok(findLine(lines, "▸ ▶ Review"), "running phase renders as a phase row");
+  const pending = findLine(lines, "Synthesize");
+  assert.ok(pending, "pending phase renders as a phase row");
+  assert.ok(pending?.includes("○ Synthesize (pending)"), "pending phase shows the pending icon and hint");
+  assert.ok(!pending?.includes("/"), "pending phase with no agents shows no agent counts");
+
+  // Pending rows are selectable: cursor reaches the pending phase row.
+  inspector.handleInput(KEY_DOWN); // Scan -> Review
+  inspector.handleInput(KEY_DOWN); // Review -> Synthesize
+  assert.ok(
+    bodyLines(inspector).some((line) => line.includes("›") && line.includes("○ Synthesize")),
+    "cursor lands on the pending phase row",
+  );
+});
+
+test("declared phases with no agents are no longer hidden", () => {
+  const { inspector } = makeInspector({
+    getToolsExpanded: () => false,
+    snapshotOverrides: {
+      phases: [phase("Plan", "pending"), phase("Build", "pending")],
+      agents: [],
+    },
+  });
+
+  const lines = bodyLines(inspector);
+  assert.ok(findLine(lines, "○ Plan (pending)"), "declared phase with no agents renders");
+  assert.ok(findLine(lines, "○ Build (pending)"), "second declared phase with no agents renders");
+});
+
+test("multi-phase workflow with pending phases renders within height bounds", () => {
+  const phases = [
+    phase("Prepare", "done"),
+    phase("Scan", "done"),
+    phase("Investigate", "running"),
+    ...Array.from({ length: 10 }, (_, index) => phase(`Later Phase ${index}`, "pending")),
+  ];
+  const agents = [
+    { id: 1, label: "prepare inputs", phase: "Prepare", prompt: "Prepare", status: "done" },
+    { id: 2, label: "scan repo", phase: "Scan", prompt: "Scan", status: "done" },
+    ...Array.from({ length: 6 }, (_, index) => ({
+      id: index + 3,
+      label: `investigate item ${index + 1}`,
+      phase: "Investigate",
+      prompt: "Investigate",
+      status: index === 5 ? ("running" as const) : ("done" as const),
+    })),
+  ];
+  const store = createActiveWorkflowStore();
+  const active = store.create(
+    snapshot({
+      currentPhase: "Investigate",
+      phases,
+      logs: ["one", "two", "three"],
+      agents,
+    }),
+  );
+  const inspector = createWorkflowInspector(
+    active,
+    { requestRender() {}, terminal: { rows: 20 } } as never,
+    keybindings() as never,
+    () => {},
+    () => true,
+  );
+
+  const lines = inspector.render(80);
+  assert.ok(lines.length <= 20, `inspector rendered ${lines.length} rows in a 20-row terminal`);
+  assert.ok(
+    lines.every((line) => visibleWidth(line) <= 80),
+    "every inspector row must fit its allocated width",
+  );
+  // The pending outline is present and the selection survives windowing.
+  inspector.handleInput(KEY_DOWN);
+  const moved = inspector.render(80);
+  assert.equal(moved.length, lines.length, "render height stays stable while navigating");
 });
 
 // ---------------------------------------------------------------------------
@@ -582,7 +718,7 @@ test("workflow inspector keeps a stable render height across live updates", () =
   active.update(
     snapshot({
       currentPhase: "Review",
-      phases: ["Scan", "Review", "Synthesize"],
+      phases: [phase("Scan", "done"), phase("Review", "running"), phase("Synthesize", "pending")],
       logs: ["first", "second", "third", "fourth", "fifth", "sixth"],
       agents: [
         { id: 1, label: "scan repo", phase: "Scan", prompt: "Scan", status: "done", resultPreview: "ok" },
@@ -609,7 +745,7 @@ test("workflow inspector fits a 40-agent workflow inside a short terminal", () =
   const active = store.create(
     snapshot({
       currentPhase: "Investigate",
-      phases: ["Investigate"],
+      phases: [phase("Investigate", "running")],
       logs: ["one", "two", "three", "four", "five"],
       agents,
     }),
@@ -637,7 +773,7 @@ test("workflow inspector honors narrow terminal dimensions", () => {
     const active = store.create(
       snapshot({
         currentPhase: "Review",
-        phases: ["Review"],
+        phases: [phase("Review", "running")],
         logs: ["a very long log line that needs truncation"],
         agents: [
           {
